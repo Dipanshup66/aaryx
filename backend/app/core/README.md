@@ -1,0 +1,1 @@
+Configuration, logging, errors, and shared application setup will live here.\n

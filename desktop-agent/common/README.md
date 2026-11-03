@@ -1,0 +1,1 @@
+Shared desktop action schemas and permission contracts will live here.\n
