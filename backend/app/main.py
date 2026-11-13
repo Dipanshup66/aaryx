@@ -1,17 +1,218 @@
-"""AARYX backend entry point.
+"""AARYX backend entry point and FastAPI application factory."""
 
-The FastAPI application will be implemented in Milestone M1.
-"""
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
+from fastapi.responses import JSONResponse
 
-app = FastAPI(
-    title="AARYX API",
-    version="0.1.0",
-    description="Personal AI Companion API",
+from app.api.routes_chat import router as chat_router
+from app.api.routes_conversations import router as conversations_router
+from app.api.routes_health import router as health_router
+from app.api.routes_memories import router as memories_router
+from app.api.routes_models import router as models_router
+from app.brain.orchestrator import BrainOrchestrator
+from app.core.config import get_settings
+from app.core.logging import get_logger, setup_logging
+from app.memory.database import create_database_engine, get_session_factory, init_db
+from app.memory.exceptions import (
+    ConversationNotFoundError,
+    ConversationValidationError,
+    MemoryNotFoundError,
+    MemoryValidationError,
 )
+from app.memory.service import MemoryService
+from app.providers.base import (
+    ProviderConnectionError,
+    ProviderError,
+    ProviderResponseError,
+    ProviderTimeoutError,
+)
+from app.providers.router import ProviderRouter
+
+logger = get_logger("main")
 
 
-@app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "scaffolded", "app": "AARYX"}
+@asynccontextmanager
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Manage application startup, provider initialization, memory setup, and graceful shutdown."""
+    settings = get_settings()
+    setup_logging(settings.log_level)
+    logger.info(
+        "Initializing %s in %s mode (provider=%s, fallback_enabled=%s, memory_enabled=%s)",
+        settings.app_name,
+        settings.ai_mode,
+        settings.ai_provider,
+        settings.ai_fallback_enabled,
+        settings.memory_enabled,
+    )
+
+    # Initialize ProviderRouter with configured primary and fallback
+    router = ProviderRouter(settings=settings)
+    await router.get_provider(router.primary_provider)
+    orchestrator = BrainOrchestrator(
+        provider=router,
+        max_history_messages=settings.memory_max_history_messages,
+    )
+
+    app.state.provider = router
+    app.state.router = router
+    app.state.orchestrator = orchestrator
+
+    # Initialize Persistent Conversation Memory if enabled
+    memory_engine = None
+    memory_service = None
+    if settings.memory_enabled:
+        logger.info(
+            "Initializing persistent conversation memory at %s",
+            settings.memory_database_url,
+        )
+        memory_engine = create_database_engine(settings.memory_database_url)
+        await init_db(memory_engine)
+        session_factory = get_session_factory(memory_engine)
+        memory_service = MemoryService(
+            session_factory=session_factory,
+            max_history_messages=settings.memory_max_history_messages,
+        )
+        logger.info("Persistent conversation memory successfully initialized")
+
+    app.state.memory_engine = memory_engine
+    app.state.memory_service = memory_service
+
+    yield
+
+    logger.info("Shutting down %s...", settings.app_name)
+    await router.aclose()
+    if memory_engine is not None:
+        logger.info("Disposing memory database engine...")
+        await memory_engine.dispose()
+    logger.info("Shutdown complete")
+
+
+def create_app() -> FastAPI:
+    """Create and configure the central FastAPI application."""
+    settings = get_settings()
+    app = FastAPI(
+        title=f"{settings.app_name} API",
+        version="0.1.0",
+        description="AARYX Personal AI Companion API",
+        lifespan=lifespan,
+    )
+
+    # Register Provider Exception Handlers
+    @app.exception_handler(ProviderConnectionError)
+    async def provider_connection_error_handler(
+        request: Request, exc: ProviderConnectionError
+    ) -> JSONResponse:
+        logger.error("Provider connection error: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={
+                "error": "Provider connection failed",
+                "detail": str(exc),
+                "provider": exc.provider,
+            },
+        )
+
+    @app.exception_handler(ProviderTimeoutError)
+    async def provider_timeout_error_handler(
+        request: Request, exc: ProviderTimeoutError
+    ) -> JSONResponse:
+        logger.error("Provider timeout: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            content={
+                "error": "Provider timeout",
+                "detail": str(exc),
+                "provider": exc.provider,
+            },
+        )
+
+    @app.exception_handler(ProviderResponseError)
+    async def provider_response_error_handler(
+        request: Request, exc: ProviderResponseError
+    ) -> JSONResponse:
+        logger.error("Provider response error: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            content={
+                "error": "Provider response error",
+                "detail": str(exc),
+                "provider": exc.provider,
+            },
+        )
+
+    @app.exception_handler(ProviderError)
+    async def provider_generic_error_handler(request: Request, exc: ProviderError) -> JSONResponse:
+        logger.error("Provider generic error: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={
+                "error": "Provider error",
+                "detail": str(exc),
+                "provider": exc.provider,
+            },
+        )
+
+    # Register Memory Exception Handlers
+    @app.exception_handler(ConversationNotFoundError)
+    async def conversation_not_found_handler(
+        request: Request, exc: ConversationNotFoundError
+    ) -> JSONResponse:
+        logger.warning("Conversation not found: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "error": "Not Found",
+                "detail": str(exc),
+            },
+        )
+
+    @app.exception_handler(ConversationValidationError)
+    async def conversation_validation_error_handler(
+        request: Request, exc: ConversationValidationError
+    ) -> JSONResponse:
+        logger.warning("Conversation validation error: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": "Validation Error",
+                "detail": str(exc),
+            },
+        )
+
+    @app.exception_handler(MemoryNotFoundError)
+    async def memory_not_found_handler(request: Request, exc: MemoryNotFoundError) -> JSONResponse:
+        logger.warning("Memory not found: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "error": "Not Found",
+                "detail": str(exc),
+            },
+        )
+
+    @app.exception_handler(MemoryValidationError)
+    async def memory_validation_error_handler(
+        request: Request, exc: MemoryValidationError
+    ) -> JSONResponse:
+        logger.warning("Memory validation error: %s", exc)
+        return JSONResponse(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "error": "Validation Error",
+                "detail": str(exc),
+            },
+        )
+
+    # Register Routers
+    app.include_router(health_router)
+    app.include_router(chat_router, prefix="/api")
+    app.include_router(conversations_router, prefix="/api")
+    app.include_router(memories_router, prefix="/api")
+    app.include_router(models_router, prefix="/api")
+
+    return app
+
+
+app = create_app()

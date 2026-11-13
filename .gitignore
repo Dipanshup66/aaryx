@@ -19,6 +19,9 @@ htmlcov/
 
 # Local databases and runtime data
 *.db
+*.db-journal
+*.db-wal
+*.db-shm
 *.sqlite
 *.sqlite3
 data/
