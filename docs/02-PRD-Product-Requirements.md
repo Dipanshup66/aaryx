@@ -14,7 +14,7 @@ AARYX is a desktop AI companion with a consistent identity, conversational inter
 2. **Local-first:** use local inference by default when practical.
 3. **Transparent:** show whether a response uses local or cloud processing.
 4. **Permissioned:** the AI may propose actions, but sensitive actions require user approval.
-5. **User-owned memory:** memory must be reviewable, editable, and deletable.
+5. **User-owned memory:** memory must be reviewable, editable, and deletable. AARYX may *suggest* memories from conversation, but a suggestion never influences replies until the user approves it (see Decision D-001).
 6. **Modular:** voice, avatars, memory, and agents are separate modules.
 
 ## 3. Personas and primary use cases
@@ -50,7 +50,8 @@ Wants to talk to AARYX, ask questions, get help with coding/research, and automa
 - Conversation persistence.
 - Explicit memory save.
 - Memory list, edit, and delete.
-- Retrieval of relevant approved memories.
+- Memory suggestions: AARYX proposes memories inferred from conversation; the user approves or rejects each one.
+- Retrieval of relevant approved memories (active only; suggestions are never used).
 
 ### MVP-4: Voice and visual identity
 - Push-to-talk voice capture.
@@ -76,6 +77,9 @@ Wants to talk to AARYX, ask questions, get help with coding/research, and automa
 | FR-05 | Conversation history is persisted. | Should | User can reopen a prior session. |
 | FR-06 | User can save a memory explicitly. | Should | Saved item appears in memory manager. |
 | FR-07 | User can delete a memory. | Must | Deleted memory is not returned by retrieval. |
+| FR-13 | AARYX can suggest memories inferred from conversation. | Should | An inferred memory is always stored as a pending suggestion and never as an active memory. |
+| FR-14 | User approves or rejects each suggestion. | Should | Only approved suggestions become active and are used in replies; rejected ones are not used and are not re-suggested. |
+| FR-15 | User can turn memory suggestions off. | Should | With suggestions off, only explicit "remember this" requests create memories. |
 | FR-08 | Voice input is push-to-talk. | Should | Recording starts/stops only through user action. |
 | FR-09 | Spoken response can be enabled/disabled. | Should | User has a voice output toggle. |
 | FR-10 | Avatar mode can be switched. | Could | Human and Hologram modes are selectable. |
@@ -96,7 +100,7 @@ Wants to talk to AARYX, ask questions, get help with coding/research, and automa
 - Visible Local / Cloud selector.
 - Visible microphone control; no hidden always-on recording.
 - Avatar mode selector.
-- Memory manager.
+- Memory manager with two views: Saved memories and Suggestions (approve / reject / edit before approving).
 - Settings page for model, voice, privacy, and permissions.
 - Tool approval dialog with action, target, and expected effect.
 

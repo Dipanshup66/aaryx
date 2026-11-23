@@ -71,9 +71,14 @@
 - Both return a common internal response format.
 
 ### Memory service
-- Stores conversations separately from explicit long-term memories.
-- Retrieves only relevant, permitted memories.
-- Supports review, edit, and deletion.
+- Stores conversations separately from long-term memories.
+- Two memory origins: **explicit** (user said "remember this"; stored as active) and **inferred** (guessed by the extractor).
+- Inferred memories are always stored as pending suggestions (`candidate`). They become `active` only after user approval (Decision D-001).
+- Inferred extraction runs on the local model only; conversation content is never sent to a cloud provider for extraction, even when cloud fallback is enabled.
+- An inferred memory never overwrites or supersedes an explicit memory.
+- Retrieves only relevant `active` memories; suggestions, rejected and superseded memories are never used in prompts.
+- Supports review, edit, approval/rejection of suggestions, and deletion.
+- Suggestions can be disabled by a user setting.
 
 ### Voice service
 - STT converts user-authorized audio to text.
@@ -113,6 +118,7 @@
 7. Response is normalized and returned.
 8. Conversation is stored according to user settings.
 9. UI displays response and provider label.
+10. If suggestions are enabled, the local extractor may propose memories from the turn; they are stored as pending suggestions and shown to the user for approval. They do not affect later replies until approved.
 
 ## 6. Data flow: desktop action
 1. User asks for an action.
@@ -126,7 +132,7 @@
 
 ## 7. Data classification
 - **Local private data:** conversations, memory, local file metadata, local settings.
-- **Cloud-transmitted data:** only prompt/context sent to selected cloud provider.
+- **Cloud-transmitted data:** only prompt/context sent to selected cloud provider. Approved long-term memories selected for a turn are part of that prompt, so they are sent to a cloud provider whenever it answers (open decision: see roadmap M3). Memory extraction itself never uses the cloud.
 - **Secrets:** API keys and tokens; never put in frontend bundle or Git.
 - **Diagnostics:** operational metadata; avoid raw conversation/audio by default.
 
@@ -139,6 +145,7 @@
 - Require approval for file modification, sending messages, purchases, deletion, or other consequential actions.
 - Keep an audit trail for tool execution.
 - Treat model output and web content as untrusted input.
+- Memory extraction is local-only; inferred memories require user approval before use.
 
 ## 9. Evolution path
 - Personal MVP: local FastAPI + SQLite + Ollama.

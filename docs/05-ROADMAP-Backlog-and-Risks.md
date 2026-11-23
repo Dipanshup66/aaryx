@@ -48,6 +48,15 @@
 - [ ] Add explicit memory save flow.
 - [ ] Add memory list/edit/delete.
 - [ ] Add retrieval tests.
+- [x] Retrieve relevant `active` memories into the system prompt on every chat turn (`/api/chat` and `/api/chat/stream`). Keyword-based and local; core memories (instructions, importance >= 4) are always eligible; capped by `MEMORY_MAX_CONTEXT_ITEMS` (default 8, 0 = off).
+- [x] Run extraction after each completed turn in the background (local model only); inferred memories become `candidate` only (D-001), explicit "remember this" becomes `active`. A memory failure never breaks the chat reply.
+- [x] User-scenario hardening suite (`tests/test_user_scenarios.py`, ~270 cases): remember-phrasing (English + Hinglish), hostile text, chat input abuse, approve/reject misuse, retrieval phrasing, model misbehaviour, failure recovery, concurrency, settings.
+- [ ] Decide whether memories may be sent to a cloud provider (they are part of the prompt, so they are when the cloud model answers). Options: always, ask once, or local-only.
+- [ ] Better relevance than keywords (embeddings / vector search) and avoid loading every active memory per turn once memories grow large.
+- [x] Inferred memories can never be created or updated into `active` (D-001); the old confidence-based auto-activation and `MEMORY_AUTO_STORE_MIN_CONFIDENCE` were removed.
+- [x] Approve / reject endpoints for suggestions and the `MEMORY_SUGGESTIONS_ENABLED` setting.
+- [x] Tests: inferred never active, rejected never re-suggested, pending suggestions not duplicated, suggestions off creates no inferred memories (`tests/test_memory_suggestions.py`).
+- [x] Rejected, pending, superseded and deleted memories are never injected into prompts (`tests/test_chat_memory_integration.py`).
 
 ### M4 — Voice
 - [ ] Add push-to-talk.
@@ -70,6 +79,11 @@
 - [ ] Add audit events.
 - [ ] Add stop/cancel control.
 - [ ] Block arbitrary shell execution in the MVP.
+
+## 2a. Decision log
+| ID | Date | Decision | Reason |
+|---|---|---|---|
+| D-001 | 2026-11-23 | Inferred memories are kept, but only as user-approved suggestions. They are never active without approval, extraction is local-only, and suggestions can be turned off. | Gives a companion feel while keeping memory user-owned (PRD principle 5, BR-03, BR-07). |
 
 ## 3. Risk register
 | Risk | Likelihood | Impact | Mitigation |
