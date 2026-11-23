@@ -7,6 +7,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from app.api.deps import MemoryDep
 from app.memory.exceptions import MemoryNotFoundError, MemoryValidationError
 from app.memory.schemas import (
+    MemoryApprove,
     MemoryCategory,
     MemoryCreate,
     MemoryDeleteResponse,
@@ -56,7 +57,7 @@ async def list_memories(
         MemoryStatus | None,
         Query(
             alias="status",
-            description="Filter by status (e.g. active, candidate, superseded, deleted)",
+            description="Filter by status (active, candidate = pending suggestions, rejected, superseded, deleted)",
         ),
     ] = None,
     category_filter: Annotated[
@@ -141,6 +142,67 @@ async def update_memory(
 
     try:
         return await memory_service.update_memory(memory_id, payload)
+    except MemoryNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except MemoryValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/{memory_id}/approve",
+    response_model=MemoryRead,
+    summary="Approve a memory suggestion",
+)
+async def approve_memory(
+    memory_id: str,
+    memory_service: MemoryDep,
+    payload: MemoryApprove | None = None,
+) -> MemoryRead:
+    """Approve a pending suggestion so it becomes an active memory (optionally edited)."""
+    if not memory_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Persistent conversation memory is disabled.",
+        )
+
+    try:
+        return await memory_service.approve_memory(memory_id, payload)
+    except MemoryNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except MemoryValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    "/{memory_id}/reject",
+    response_model=MemoryRead,
+    summary="Reject a memory suggestion",
+)
+async def reject_memory(
+    memory_id: str,
+    memory_service: MemoryDep,
+) -> MemoryRead:
+    """Reject a pending suggestion. It is never used and will not be suggested again."""
+    if not memory_service:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Persistent conversation memory is disabled.",
+        )
+
+    try:
+        return await memory_service.reject_memory(memory_id)
     except MemoryNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

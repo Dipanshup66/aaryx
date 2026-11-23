@@ -24,6 +24,7 @@ from app.providers.base import (
     ChatRequest,
     LLMProvider,
     ProviderError,
+    describe_error,
 )
 from app.providers.gemini import GeminiProvider
 from app.providers.ollama import OllamaProvider
@@ -31,25 +32,60 @@ from app.providers.openai import OpenAIProvider
 
 logger = get_logger("memory.extractor")
 
-# Explicit directive prefix patterns
-_EXPLICIT_PREFIX_PATTERNS = [
-    re.compile(r"^(?:please\s+)?always\s+remember\s*(?:that)?[:,\s]*", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?remember\s*(?:that)?[:,\s]*", re.IGNORECASE),
-    re.compile(r"^(?:please\s+)?note\s*(?:that)?[:,\s]*", re.IGNORECASE),
+# Explicit directive prefix patterns.
+# Every keyword must end at a real word boundary so ordinary words that merely START with a
+# keyword ("Notebook", "Remembering", "Noted", "Notes") are never mistaken for a directive.
+# `_END` also rejects a following apostrophe or hyphen ("note-taking", "remember's").
+_END = r"(?![\w'’-])"
+_THAT = rf"(?:that{_END})?"
+_TAIL = r"[:,\s]*"
+_PLEASE_HI = r"(?:(?:kripya|please|plz)\s+)?"
+_KI = rf"(?:ki{_END})?"
+_HINGLISH_PREFIX_PATTERNS = [
+    # "yaad rakho / yaad rakhna / yaad rakhiye / yaad rakh lo ki ..."
     re.compile(
-        r"^(?:please\s+)?(?:don'?t|do\s+not)\s+forget\s*(?:that)?[:,\s]*",
+        rf"^{_PLEASE_HI}yaad\s+rakh(?:o|na|iye|iyega|\s+lo|\s+lena){_END}\s*{_KI}{_TAIL}",
         re.IGNORECASE,
     ),
-    re.compile(r"^(?:please\s+)?keep\s+in\s+mind\s*(?:that)?[:,\s]*", re.IGNORECASE),
+    # "dhyan rakho / dhyan mein rakhna ki ..."
     re.compile(
-        r"^(?:please\s+)?make\s+sure\s+to\s+remember\s*(?:that)?[:,\s]*",
+        rf"^{_PLEASE_HI}dhyan\s+(?:mein\s+)?rakh(?:o|na|iye|iyega){_END}\s*{_KI}{_TAIL}",
         re.IGNORECASE,
     ),
+    # "mat bhoolna / bhoolna mat / mat bhoolo ki ..."
     re.compile(
-        r"^(?:never\s+forget|make\s+a\s+note|take\s+note)\s*(?:that)?[:,\s]*",
+        rf"^{_PLEASE_HI}(?:mat\s+bhool(?:na|o|iye|iyega)|bhool(?:na|o)\s+mat){_END}\s*{_KI}{_TAIL}",
+        re.IGNORECASE,
+    ),
+    # "note kar lo / note kar lena / note kar do ki ..."
+    re.compile(
+        rf"^{_PLEASE_HI}note\s+kar\s+(?:lo|lena|le|do|dena){_END}\s*{_KI}{_TAIL}",
         re.IGNORECASE,
     ),
 ]
+
+_EXPLICIT_PREFIX_PATTERNS = [
+    *_HINGLISH_PREFIX_PATTERNS,
+    re.compile(rf"^(?:please\s+)?always\s+remember{_END}\s*{_THAT}{_TAIL}", re.IGNORECASE),
+    re.compile(rf"^(?:please\s+)?remember{_END}\s*{_THAT}{_TAIL}", re.IGNORECASE),
+    re.compile(rf"^(?:please\s+)?note{_END}\s*{_THAT}{_TAIL}", re.IGNORECASE),
+    re.compile(
+        rf"^(?:please\s+)?(?:don'?t|do\s+not)\s+forget{_END}\s*{_THAT}{_TAIL}",
+        re.IGNORECASE,
+    ),
+    re.compile(rf"^(?:please\s+)?keep\s+in\s+mind{_END}\s*{_THAT}{_TAIL}", re.IGNORECASE),
+    re.compile(
+        rf"^(?:please\s+)?make\s+sure\s+to\s+remember{_END}\s*{_THAT}{_TAIL}",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        rf"^(?:never\s+forget|make\s+a\s+note|take\s+note){_END}\s*{_THAT}{_TAIL}",
+        re.IGNORECASE,
+    ),
+]
+
+# A single turn can queue at most this many suggestions (guards against a runaway model).
+_MAX_SUGGESTIONS_PER_TURN = 5
 
 # Words that indicate trivial or conversational non-facts
 _AMBIGUOUS_FACTS = {"it", "this", "that", "yes", "no", "ok", "okay", "sure", "fine"}
@@ -90,19 +126,51 @@ JSON output format:
 ]
 """
 
-# Common opposing terms for conservative contradiction detection
-_OPPOSING_PAIRS = [
-    ({"dark mode", "dark theme"}, {"light mode", "light theme"}),
-    ({"tabs", "tab indentation"}, {"spaces", "space indentation"}),
-    ({"python"}, {"javascript", "typescript", "rust", "go"}),
-    ({"vegetarian", "vegan"}, {"meat", "non-vegetarian", "carnivore"}),
+# Common opposing terms for conservative contradiction detection.
+# Terms are matched as whole words / phrases (never as substrings of other words).
+_OPPOSING_PAIRS: list[tuple[frozenset[str], frozenset[str]]] = [
+    (frozenset({"dark mode", "dark theme"}), frozenset({"light mode", "light theme"})),
+    (frozenset({"tabs", "tab indentation"}), frozenset({"spaces", "space indentation"})),
+    (
+        frozenset({"python"}),
+        frozenset({"javascript", "typescript", "rust", "go", "golang"}),
+    ),
+    (
+        frozenset({"vegetarian", "vegan"}),
+        frozenset({"meat", "non-vegetarian", "carnivore"}),
+    ),
 ]
+
+# Ambiguous common English words that are only treated as a topic term when written exactly
+# as the proper name in the original text ("Go" the language, not "go home").
+_CASE_SENSITIVE_TERMS = {"go": "Go"}
+
+_TOKEN_RE = re.compile(r"[a-z0-9+#ऀ-ॿ]+")
+
+# Words that carry no topic information: the generic "User <verb>" frame, auxiliaries, and the
+# vocabulary of negation/transition markers themselves.
+_STOPWORDS = frozenset(
+    {
+        "user", "users", "the", "and", "for", "with", "from", "that", "this", "they", "their",
+        "them", "have", "has", "had", "been", "being", "are", "was", "were", "will", "would",
+        "can", "could", "should", "not", "but", "into", "onto", "over", "very", "also", "just",
+        "really", "when", "while", "about", "some", "much", "more", "most", "than", "then",
+        "uses", "use", "using", "used", "prefers", "prefer", "preferred", "likes", "like",
+        "loves", "love", "enjoys", "enjoy", "wants", "want", "now", "longer", "anymore",
+        "stopped", "switched", "moved", "instead", "rather", "always", "never", "often",
+        "daily", "usually", "currently", "mostly", "mainly", "regularly",
+    }
+)  # fmt: skip
 
 _NEGATION_MARKERS = [
     "no longer",
     "not anymore",
     "switched to",
+    "switched from",
     "moved to",
+    "moved from",
+    "migrated to",
+    "migrated from",
     "instead of",
     "rather than",
     "now prefer",
@@ -270,7 +338,6 @@ class InferredMemoryExtractor:
 
         self.model = self.settings.memory_extraction_model
         self.min_confidence = self.settings.memory_candidate_min_confidence
-        self.auto_store_confidence = self.settings.memory_auto_store_min_confidence
 
     def is_conversational_filler(self, text: str) -> bool:
         """Determine if user input is trivial greeting or filler that contains no durable facts."""
@@ -289,7 +356,7 @@ class InferredMemoryExtractor:
     ) -> list[MemoryCreate]:
         """Extract durable memory candidates from user input using the local model.
 
-        Returns a list of validated MemoryCreate objects (active or candidate).
+        Returns a list of validated MemoryCreate objects, always with status 'candidate'.
         Never exposes raw model reasoning or leaks sensitive data.
         """
         if self.is_conversational_filler(user_prompt):
@@ -313,7 +380,7 @@ class InferredMemoryExtractor:
             logger.info("Running local memory extraction with model '%s'", self.model)
             response = await self.provider.generate(chat_request)
         except (ProviderError, TimeoutError, OSError, ValueError) as exc:
-            logger.warning("Local memory extraction failed: %s", exc)
+            logger.warning("Local memory extraction failed: %s", describe_error(exc))
             return []
 
         # Sanitize reply content to strip any reasoning or <think> tags
@@ -386,22 +453,34 @@ class InferredMemoryExtractor:
                 )
                 continue
 
-            # Lifecycle status assignment
-            status = "active" if confidence >= self.auto_store_confidence else "candidate"
-
             try:
+                # An inferred memory is only ever a suggestion: it becomes active solely
+                # through explicit user approval, whatever its confidence.
                 candidate = MemoryCreate(
                     content=validated_content,
                     category=category,
                     origin="inferred",
                     confidence=confidence,
                     importance=importance,
-                    status=status,
+                    status="candidate",
                 )
                 results.append(candidate)
             except ValueError as exc:
-                logger.debug("Failed validation for inferred candidate: %s", exc)
+                # Log only the validation messages: str(exc) would echo the memory content.
+                reasons = [e.get("msg", "invalid") for e in getattr(exc, "errors", list)()]
+                logger.warning(
+                    "Dropped inferred memory candidate failing validation: %s",
+                    "; ".join(reasons) or exc.__class__.__name__,
+                )
                 continue
+
+        if len(results) > _MAX_SUGGESTIONS_PER_TURN:
+            logger.warning(
+                "Extraction returned %d suggestions; keeping the first %d",
+                len(results),
+                _MAX_SUGGESTIONS_PER_TURN,
+            )
+            results = results[:_MAX_SUGGESTIONS_PER_TURN]
 
         logger.info("Successfully extracted %d memory candidates", len(results))
         return results
@@ -425,50 +504,100 @@ def find_exact_duplicate(
     return None
 
 
+def _find_group_terms(group: frozenset[str], norm: str, raw: str) -> bool:
+    """Return True if any term of ``group`` occurs as a whole word/phrase in the text."""
+    for term in group:
+        if term in _CASE_SENSITIVE_TERMS:
+            # Ambiguous English words ("go") only count when written as the proper name.
+            if re.search(
+                rf"(?<![A-Za-z0-9]){re.escape(_CASE_SENSITIVE_TERMS[term])}(?![A-Za-z0-9])", raw
+            ):
+                return True
+            continue
+        if re.search(rf"(?<![a-z0-9])(?<!non-){re.escape(term)}(?![a-z0-9])", norm):
+            return True
+    return False
+
+
+def meaningful_tokens(norm: str) -> set[str]:
+    """Whole-word content tokens, excluding stop words and the generic 'User ... prefers' frame."""
+    return {t for t in _TOKEN_RE.findall(norm) if len(t) > 2 and t not in _STOPWORDS}
+
+
+_meaningful_tokens = meaningful_tokens  # kept for existing internal callers
+
+
+def _stem(token: str) -> str:
+    """Very light English stemmer so "gardens"/"garden" and "running"/"runners"/"run" match."""
+    if len(token) <= 3 or not token.isascii():
+        return token
+    if token.endswith("ies") and len(token) > 4:
+        token = token[:-3] + "y"
+    elif token.endswith("s") and not token.endswith("ss"):
+        token = token[:-1]
+    for suffix in ("ing", "er", "ed"):
+        if token.endswith(suffix) and len(token) > len(suffix) + 2:
+            token = token[: -len(suffix)]
+            break
+    if len(token) > 3 and token[-1] == token[-2] and token[-1] not in "aeiouls":
+        token = token[:-1]
+    return token
+
+
+def stemmed_tokens(norm: str) -> set[str]:
+    """Meaningful tokens reduced to a rough stem; used to match a message to memories."""
+    return {_stem(t) for t in meaningful_tokens(norm)}
+
+
 def detect_contradiction(
     candidate: MemoryCreate,
     existing_memories: list[Memory],
 ) -> tuple[Memory | None, str | None]:
     """Conservatively check if incoming memory candidate conflicts with an existing active memory.
 
+    Matching is token-based: opposing terms must appear as whole words/phrases, and topic
+    overlap is computed over meaningful content words only (never over the generic subject
+    "user" or stop words). No embeddings or fuzzy semantics are involved.
+
     Returns (conflicting_memory, reason) if a contradiction is detected, otherwise (None, None).
     """
     cand_norm = normalize_memory_content(candidate.content)
-    cand_lower = candidate.content.lower()
+    cand_raw = candidate.content
 
-    # Check for direct negation or transition markers in candidate
-    has_negation = any(m in cand_lower for m in _NEGATION_MARKERS)
+    has_negation = any(m in cand_norm for m in _NEGATION_MARKERS)
+    cand_tokens = _meaningful_tokens(cand_norm)
 
     for mem in existing_memories:
         if mem.status != "active":
             continue
 
         mem_norm = normalize_memory_content(mem.content)
+        mem_raw = mem.content
 
-        # 1. Opposing value pairs (e.g. dark mode vs light mode, tabs vs spaces)
+        # 1. Opposing value pairs (e.g. dark mode vs light mode, tabs vs spaces).
         for group_a, group_b in _OPPOSING_PAIRS:
-            in_a = any(term in cand_norm for term in group_a)
-            in_b = any(term in cand_norm for term in group_b)
-            mem_in_a = any(term in mem_norm for term in group_a)
-            mem_in_b = any(term in mem_norm for term in group_b)
+            c_a = _find_group_terms(group_a, cand_norm, cand_raw)
+            c_b = _find_group_terms(group_b, cand_norm, cand_raw)
+            m_a = _find_group_terms(group_a, mem_norm, mem_raw)
+            m_b = _find_group_terms(group_b, mem_norm, mem_raw)
 
-            if (in_a and mem_in_b) or (in_b and mem_in_a):
+            if m_a == m_b:
+                continue  # memory is neutral or mentions both sides: nothing to oppose
+            if c_a and c_b:
+                # Candidate names both sides: only a contradiction when it signals a change
+                # ("switched from Python to Rust"), not when it is additive ("Python and Rust").
+                if has_negation:
+                    return mem, "opposing_value_detected"
+                continue
+            if (c_a and m_b) or (c_b and m_a):
                 return mem, "opposing_value_detected"
 
-        # 2. Negation/transition cues combined with significant token overlap
+        # 2/3. Negation / transition cue combined with topic overlap on content words.
         if has_negation:
-            cand_tokens = {w for w in cand_norm.split() if len(w) > 3}
-            mem_tokens = {w for w in mem_norm.split() if len(w) > 3}
-            overlap = cand_tokens.intersection(mem_tokens)
-            if len(overlap) >= 1:
-                return mem, "negation_and_topic_overlap"
-
-        # 3. Direct category-scoped opposition with negation
-        if mem.category == candidate.category and has_negation:
-            cand_tokens = {w for w in cand_norm.split() if len(w) > 3}
-            mem_tokens = {w for w in mem_norm.split() if len(w) > 3}
-            overlap = cand_tokens.intersection(mem_tokens)
+            overlap = cand_tokens & _meaningful_tokens(mem_norm)
             if len(overlap) >= 2:
+                return mem, "negation_and_topic_overlap"
+            if len(overlap) == 1 and mem.category == candidate.category:
                 return mem, "category_topic_contradiction"
 
     return None, None

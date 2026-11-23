@@ -28,9 +28,40 @@ from app.providers.base import (
     ProviderResponseError,
     ProviderTimeoutError,
     TokenUsage,
+    describe_error,
+    safe_url,
 )
 
 logger = get_logger("providers.anthropic")
+
+
+# Anthropic error `type` values -> equivalent HTTP status. In-stream `error` events carry no
+# HTTP status (the response is already 200), so the status is derived from the documented type.
+_ERROR_TYPE_STATUS: dict[str, int] = {
+    "invalid_request_error": 400,
+    "authentication_error": 401,
+    "billing_error": 402,
+    "permission_error": 403,
+    "not_found_error": 404,
+    "request_too_large": 413,
+    "rate_limit_error": 429,
+    "api_error": 500,
+    "timeout_error": 504,
+    "overloaded_error": 529,
+}
+
+
+def _error_event_to_exception(event: dict[str, Any]) -> ProviderResponseError:
+    """Convert an Anthropic in-stream ``error`` event into a structured ProviderResponseError."""
+    err = event.get("error")
+    err = err if isinstance(err, dict) else {}
+    error_type = str(err.get("type", "unknown_error"))
+    message = str(err.get("message", "no message"))
+    return ProviderResponseError(
+        f"Anthropic stream error ({error_type}): {message}",
+        provider="anthropic",
+        status_code=_ERROR_TYPE_STATUS.get(error_type),
+    )
 
 
 class AnthropicProvider(LLMProvider):
@@ -132,9 +163,10 @@ class AnthropicProvider(LLMProvider):
                 f"Anthropic request timed out after {self.timeout}s", provider="anthropic"
             ) from exc
         except (httpx.ConnectError, httpx.NetworkError) as exc:
-            logger.error("Failed to connect to Anthropic at %s", self.base_url)
+            logger.error("Failed to connect to Anthropic at %s", safe_url(self.base_url))
             raise ProviderConnectionError(
-                f"Cannot connect to Anthropic service at {self.base_url}", provider="anthropic"
+                f"Cannot connect to Anthropic service at {safe_url(self.base_url)}",
+                provider="anthropic",
             ) from exc
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
@@ -142,17 +174,31 @@ class AnthropicProvider(LLMProvider):
             logger.error("Anthropic returned HTTP error status %d", code)
             if code in (401, 403):
                 raise ProviderResponseError(
-                    f"Anthropic authentication error ({code}): {text}", provider="anthropic"
+                    f"Anthropic authentication error ({code}): {text}",
+                    provider="anthropic",
+                    status_code=code,
                 ) from exc
             if code == 429:
                 raise ProviderResponseError(
-                    f"Anthropic rate limit exceeded ({code}): {text}", provider="anthropic"
+                    f"Anthropic rate limit exceeded ({code}): {text}",
+                    provider="anthropic",
+                    status_code=code,
                 ) from exc
             raise ProviderResponseError(
-                f"Anthropic returned HTTP {code}: {text}", provider="anthropic"
+                f"Anthropic returned HTTP {code}: {text}", provider="anthropic", status_code=code
+            ) from exc
+        except httpx.UnsupportedProtocol as exc:
+            raise ProviderConfigurationError(
+                f"Invalid Anthropic base URL: {safe_url(self.base_url)}", provider="anthropic"
+            ) from exc
+        except httpx.TransportError as exc:
+            # RemoteProtocolError, ProxyError, ... : the connection failed or dropped.
+            logger.error("Anthropic transport failure: %s", exc.__class__.__name__)
+            raise ProviderConnectionError(
+                f"Anthropic connection failed ({exc.__class__.__name__})", provider="anthropic"
             ) from exc
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, IndexError) as exc:
-            logger.error("Failed to parse Anthropic response: %s", exc)
+            logger.error("Failed to parse Anthropic response: %s", exc.__class__.__name__)
             raise ProviderResponseError(
                 f"Invalid response from Anthropic: {exc}", provider="anthropic"
             ) from exc
@@ -213,20 +259,30 @@ class AnthropicProvider(LLMProvider):
                     error_body = await response.aread()
                     code = response.status_code
                     text = error_body.decode(errors="replace")
-                    logger.error("Anthropic streaming returned HTTP %d: %s", code, text)
+                    logger.error("Anthropic streaming returned HTTP %d", code)
                     if code in (401, 403):
                         raise ProviderResponseError(
                             f"Anthropic authentication error ({code}): {text}",
                             provider="anthropic",
+                            status_code=code,
                         )
                     if code == 429:
                         raise ProviderResponseError(
                             f"Anthropic rate limit exceeded ({code}): {text}",
                             provider="anthropic",
+                            status_code=code,
                         )
                     raise ProviderResponseError(
-                        f"Anthropic streaming error ({code}): {text}", provider="anthropic"
+                        f"Anthropic streaming error ({code}): {text}",
+                        provider="anthropic",
+                        status_code=code,
                     )
+
+                # Anthropic documents the flow as: message_start, content blocks, ONE OR MORE
+                # message_delta events, then a FINAL message_stop. A stop_reason on a
+                # message_delta is therefore not terminal (more deltas or an `error` event may
+                # still follow); only message_stop proves the response completed.
+                completed = False
 
                 async for line in response.aiter_lines():
                     cleaned_line = line.strip()
@@ -239,8 +295,13 @@ class AnthropicProvider(LLMProvider):
                     except json.JSONDecodeError as exc:
                         logger.warning("Skipping malformed Anthropic stream frame: %s", exc)
                         continue
+                    if not isinstance(chunk_json, dict):
+                        continue
 
                     event_type = chunk_json.get("type")
+                    if event_type == "error":
+                        logger.error("Anthropic stream reported an error event")
+                        raise _error_event_to_exception(chunk_json)
                     if event_type == "content_block_delta":
                         delta_obj = chunk_json.get("delta", {})
                         if delta_obj.get("type") == "text_delta":
@@ -265,7 +326,17 @@ class AnthropicProvider(LLMProvider):
                             provider="anthropic",
                         )
                     elif event_type == "message_stop":
+                        completed = True
                         break
+
+                if not completed:
+                    # The connection closed without the final message_stop event: the reply
+                    # may be incomplete and must not be treated as a finished generation.
+                    logger.error("Anthropic stream ended before message_stop")
+                    raise ProviderResponseError(
+                        "Anthropic stream ended before message_stop (truncated response)",
+                        provider="anthropic",
+                    )
         except httpx.TimeoutException as exc:
             logger.error("Anthropic stream timed out")
             raise ProviderTimeoutError(
@@ -275,6 +346,24 @@ class AnthropicProvider(LLMProvider):
             logger.error("Anthropic stream network connection failed")
             raise ProviderConnectionError(
                 "Anthropic stream connection failed", provider="anthropic"
+            ) from exc
+        except httpx.UnsupportedProtocol as exc:
+            raise ProviderConfigurationError(
+                f"Invalid Anthropic base URL: {safe_url(self.base_url)}", provider="anthropic"
+            ) from exc
+        except httpx.TransportError as exc:
+            # RemoteProtocolError (dropped / incomplete chunked read), ProxyError, ...
+            logger.error("Anthropic stream transport failure: %s", exc.__class__.__name__)
+            raise ProviderConnectionError(
+                f"Anthropic stream connection dropped ({exc.__class__.__name__})",
+                provider="anthropic",
+            ) from exc
+        except httpx.HTTPError as exc:
+            # DecodingError, TooManyRedirects, ...: unusable response from the provider.
+            logger.error("Anthropic stream protocol failure: %s", exc.__class__.__name__)
+            raise ProviderResponseError(
+                f"Invalid Anthropic stream response ({exc.__class__.__name__})",
+                provider="anthropic",
             ) from exc
 
     async def list_models(self) -> list[ModelInfo]:
@@ -290,11 +379,14 @@ class AnthropicProvider(LLMProvider):
             ) from exc
         except (httpx.ConnectError, httpx.NetworkError) as exc:
             raise ProviderConnectionError(
-                f"Cannot connect to Anthropic at {self.base_url}: {exc}", provider="anthropic"
+                f"Cannot connect to Anthropic at {safe_url(self.base_url)}: {exc}",
+                provider="anthropic",
             ) from exc
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
             raise ProviderResponseError(
-                f"Failed to retrieve Anthropic models: {exc}", provider="anthropic"
+                f"Failed to retrieve Anthropic models: {exc}",
+                provider="anthropic",
+                status_code=getattr(getattr(exc, "response", None), "status_code", None),
             ) from exc
 
         model_items = data.get("data", [])
@@ -315,18 +407,18 @@ class AnthropicProvider(LLMProvider):
                 healthy=True,
                 provider="anthropic",
                 details={
-                    "base_url": self.base_url,
+                    "base_url": safe_url(self.base_url),
                     "default_model": self.default_model,
                     "model_count": len(models),
                 },
             )
         except ProviderError as exc:
-            logger.warning("Anthropic health check failed: %s", exc)
+            logger.warning("Anthropic health check failed: %s", describe_error(exc))
             return ProviderHealth(
                 healthy=False,
                 provider="anthropic",
-                details={"base_url": self.base_url, "default_model": self.default_model},
-                error=str(exc),
+                details={"base_url": safe_url(self.base_url), "default_model": self.default_model},
+                error=describe_error(exc),
             )
 
     async def aclose(self) -> None:

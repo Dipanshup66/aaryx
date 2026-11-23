@@ -61,13 +61,18 @@ class Conversation(Base):
         doc="Extensible metadata dictionary for tags, settings, or client info",
     )
 
-    # Cascading relation to messages
+    # Cascading relation to messages.
+    # Never loaded implicitly: a conversation can hold thousands of messages, and most callers
+    # only need the conversation row (existence checks, titles, counts). Callers that need the
+    # thread load it explicitly (selectinload) or query it with a LIMIT through the repository.
+    # `passive_deletes` lets the ORM delete a conversation without first loading its messages.
     messages: Mapped[list["Message"]] = relationship(
         "Message",
         back_populates="conversation",
         cascade="all, delete-orphan",
+        passive_deletes=True,
         order_by="Message.created_at.asc()",
-        lazy="selectin",
+        lazy="raise",
     )
 
 
@@ -236,12 +241,12 @@ class Memory(Base):
         "Memory",
         remote_side=[id],
         foreign_keys=[superseded_by_id],
-        lazy="selectin",
+        lazy="raise",
     )
     source_conversation: Mapped["Conversation | None"] = relationship(
         "Conversation",
         foreign_keys=[source_conversation_id],
-        lazy="selectin",
+        lazy="raise",
     )
 
     __table_args__ = (

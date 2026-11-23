@@ -26,6 +26,8 @@ from app.providers.base import (
     ProviderResponseError,
     ProviderTimeoutError,
     TokenUsage,
+    redact_secrets,
+    safe_url,
 )
 
 logger = get_logger("providers.ollama")
@@ -116,18 +118,19 @@ class OllamaProvider(LLMProvider):
                 f"Ollama request timed out after {self.timeout}s", provider="ollama"
             ) from exc
         except (httpx.ConnectError, httpx.NetworkError) as exc:
-            logger.error("Failed to connect to Ollama at %s", self.base_url)
+            logger.error("Failed to connect to Ollama at %s", safe_url(self.base_url))
             raise ProviderConnectionError(
-                f"Cannot connect to Ollama daemon at {self.base_url}", provider="ollama"
+                f"Cannot connect to Ollama daemon at {safe_url(self.base_url)}", provider="ollama"
             ) from exc
         except httpx.HTTPStatusError as exc:
             logger.error("Ollama returned HTTP error status %d", exc.response.status_code)
             raise ProviderResponseError(
                 f"Ollama returned HTTP {exc.response.status_code}: {exc.response.text}",
                 provider="ollama",
+                status_code=exc.response.status_code,
             ) from exc
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
-            logger.error("Failed to parse Ollama response: %s", exc)
+            logger.error("Failed to parse Ollama response: %s", exc.__class__.__name__)
             raise ProviderResponseError(
                 f"Invalid response from Ollama: {exc}", provider="ollama"
             ) from exc
@@ -199,6 +202,7 @@ class OllamaProvider(LLMProvider):
                     raise ProviderResponseError(
                         f"Ollama streaming returned HTTP {response.status_code}: {error_body.decode(errors='replace')}",
                         provider="ollama",
+                        status_code=response.status_code,
                     )
 
                 async for line in response.aiter_lines():
@@ -244,19 +248,21 @@ class OllamaProvider(LLMProvider):
                     )
 
         except httpx.TimeoutException as exc:
-            logger.error("Streaming from Ollama timed out: %s", exc)
+            logger.error("Streaming from Ollama timed out (%s)", exc.__class__.__name__)
             raise ProviderTimeoutError(
                 f"Ollama streaming timed out: {exc}", provider="ollama"
             ) from exc
         except (httpx.ConnectError, httpx.NetworkError) as exc:
-            logger.error("Connection lost during streaming from Ollama: %s", exc)
+            logger.error(
+                "Connection lost during streaming from Ollama (%s)", exc.__class__.__name__
+            )
             raise ProviderConnectionError(
                 f"Connection error with Ollama daemon: {exc}", provider="ollama"
             ) from exc
         except ProviderError:
             raise
         except (httpx.HTTPError, json.JSONDecodeError, OSError) as exc:
-            logger.error("Unexpected error during Ollama streaming: %s", exc)
+            logger.error("Unexpected error during Ollama streaming (%s)", exc.__class__.__name__)
             raise ProviderResponseError(
                 f"Unexpected error during streaming: {exc}", provider="ollama"
             ) from exc
@@ -274,11 +280,13 @@ class OllamaProvider(LLMProvider):
             ) from exc
         except (httpx.ConnectError, httpx.NetworkError) as exc:
             raise ProviderConnectionError(
-                f"Failed to connect to Ollama at {self.base_url}", provider="ollama"
+                f"Failed to connect to Ollama at {safe_url(self.base_url)}", provider="ollama"
             ) from exc
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
             raise ProviderResponseError(
-                f"Failed to retrieve model list: {exc}", provider="ollama"
+                f"Failed to retrieve model list: {exc}",
+                provider="ollama",
+                status_code=getattr(getattr(exc, "response", None), "status_code", None),
             ) from exc
 
         models_raw = data.get("models", [])
@@ -305,7 +313,7 @@ class OllamaProvider(LLMProvider):
                     healthy=True,
                     provider="ollama",
                     details={
-                        "base_url": self.base_url,
+                        "base_url": safe_url(self.base_url),
                         "default_model": self.default_model,
                         "model_count": len(models),
                         "available_models": models,
@@ -314,13 +322,16 @@ class OllamaProvider(LLMProvider):
             return ProviderHealth(
                 healthy=False,
                 provider="ollama",
-                error=f"HTTP {response.status_code}: {response.text}",
+                error=f"HTTP {response.status_code}",
             )
         except (httpx.HTTPError, json.JSONDecodeError, OSError) as exc:
             return ProviderHealth(
                 healthy=False,
                 provider="ollama",
-                error=f"Unreachable at {self.base_url}: {exc}",
+                error=(
+                    f"Unreachable at {safe_url(self.base_url)} "
+                    f"({exc.__class__.__name__}): {redact_secrets(str(exc))[:200]}"
+                ),
             )
 
     async def aclose(self) -> None:

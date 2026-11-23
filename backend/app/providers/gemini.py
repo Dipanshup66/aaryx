@@ -28,6 +28,8 @@ from app.providers.base import (
     ProviderResponseError,
     ProviderTimeoutError,
     TokenUsage,
+    describe_error,
+    safe_url,
 )
 
 logger = get_logger("providers.gemini")
@@ -141,9 +143,9 @@ class GeminiProvider(LLMProvider):
                 f"Gemini request timed out after {self.timeout}s", provider="gemini"
             ) from exc
         except (httpx.ConnectError, httpx.NetworkError) as exc:
-            logger.error("Failed to connect to Gemini at %s", self.base_url)
+            logger.error("Failed to connect to Gemini at %s", safe_url(self.base_url))
             raise ProviderConnectionError(
-                f"Cannot connect to Gemini service at {self.base_url}", provider="gemini"
+                f"Cannot connect to Gemini service at {safe_url(self.base_url)}", provider="gemini"
             ) from exc
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
@@ -151,17 +153,21 @@ class GeminiProvider(LLMProvider):
             logger.error("Gemini returned HTTP error status %d", code)
             if code in (400, 401, 403):
                 raise ProviderResponseError(
-                    f"Gemini authentication or request error ({code}): {text}", provider="gemini"
+                    f"Gemini authentication or request error ({code}): {text}",
+                    provider="gemini",
+                    status_code=code,
                 ) from exc
             if code == 429:
                 raise ProviderResponseError(
-                    f"Gemini rate limit or quota exceeded ({code}): {text}", provider="gemini"
+                    f"Gemini rate limit or quota exceeded ({code}): {text}",
+                    provider="gemini",
+                    status_code=code,
                 ) from exc
             raise ProviderResponseError(
-                f"Gemini returned HTTP {code}: {text}", provider="gemini"
+                f"Gemini returned HTTP {code}: {text}", provider="gemini", status_code=code
             ) from exc
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, IndexError) as exc:
-            logger.error("Failed to parse Gemini response: %s", exc)
+            logger.error("Failed to parse Gemini response: %s", exc.__class__.__name__)
             raise ProviderResponseError(
                 f"Invalid response from Gemini: {exc}", provider="gemini"
             ) from exc
@@ -223,17 +229,23 @@ class GeminiProvider(LLMProvider):
                     error_body = await response.aread()
                     code = response.status_code
                     text = error_body.decode(errors="replace")
-                    logger.error("Gemini streaming returned HTTP %d: %s", code, text)
+                    logger.error("Gemini streaming returned HTTP %d", code)
                     if code in (400, 401, 403):
                         raise ProviderResponseError(
-                            f"Gemini authentication error ({code}): {text}", provider="gemini"
+                            f"Gemini authentication error ({code}): {text}",
+                            provider="gemini",
+                            status_code=code,
                         )
                     if code == 429:
                         raise ProviderResponseError(
-                            f"Gemini rate limit exceeded ({code}): {text}", provider="gemini"
+                            f"Gemini rate limit exceeded ({code}): {text}",
+                            provider="gemini",
+                            status_code=code,
                         )
                     raise ProviderResponseError(
-                        f"Gemini streaming error ({code}): {text}", provider="gemini"
+                        f"Gemini streaming error ({code}): {text}",
+                        provider="gemini",
+                        status_code=code,
                     )
 
                 async for line in response.aiter_lines():
@@ -302,11 +314,13 @@ class GeminiProvider(LLMProvider):
             ) from exc
         except (httpx.ConnectError, httpx.NetworkError) as exc:
             raise ProviderConnectionError(
-                f"Cannot connect to Gemini at {self.base_url}: {exc}", provider="gemini"
+                f"Cannot connect to Gemini at {safe_url(self.base_url)}: {exc}", provider="gemini"
             ) from exc
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
             raise ProviderResponseError(
-                f"Failed to retrieve Gemini models: {exc}", provider="gemini"
+                f"Failed to retrieve Gemini models: {exc}",
+                provider="gemini",
+                status_code=getattr(getattr(exc, "response", None), "status_code", None),
             ) from exc
 
         model_items = data.get("models", [])
@@ -334,18 +348,18 @@ class GeminiProvider(LLMProvider):
                 healthy=True,
                 provider="gemini",
                 details={
-                    "base_url": self.base_url,
+                    "base_url": safe_url(self.base_url),
                     "default_model": self.default_model,
                     "model_count": len(models),
                 },
             )
         except ProviderError as exc:
-            logger.warning("Gemini health check failed: %s", exc)
+            logger.warning("Gemini health check failed: %s", describe_error(exc))
             return ProviderHealth(
                 healthy=False,
                 provider="gemini",
-                details={"base_url": self.base_url, "default_model": self.default_model},
-                error=str(exc),
+                details={"base_url": safe_url(self.base_url), "default_model": self.default_model},
+                error=describe_error(exc),
             )
 
     async def aclose(self) -> None:

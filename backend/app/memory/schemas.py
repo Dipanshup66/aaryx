@@ -62,14 +62,6 @@ _CREDENTIAL_PATTERNS = [
     re.compile(r"-----BEGIN (?:[A-Z ]+)?PRIVATE KEY-----", re.IGNORECASE),
 ]
 
-_CREDENTIAL_PATTERNS = [
-    re.compile(r"\b(?:sk-[a-zA-Z0-9_\-]{15,}|ghp_[a-zA-Z0-9]{20,}|gho_[a-zA-Z0-9]{20,})\b"),
-    _JWT_PATTERN,
-    _AWS_KEY_PATTERN,
-    re.compile(r"\bbearer\s+[a-zA-Z0-9_\-\.]{20,}\b", re.IGNORECASE),
-    re.compile(r"-----BEGIN (?:[A-Z ]+)?PRIVATE KEY-----", re.IGNORECASE),
-]
-
 _SSN_PATTERN = re.compile(r"\b\d{3}-\d{2}-\d{4}\b")
 _CREDIT_CARD_CANDIDATE_PATTERN = re.compile(r"\b(?:\d{4}[ -]?){3}\d{4}\b")
 
@@ -143,35 +135,6 @@ def validate_memory_content_security(content: str) -> str:
             raise ValueError(
                 "Memory content contains prohibited system-prompt overrides or attempts to bypass security boundaries."
             )
-
-    # 2. Check passwords and PINs
-    for pattern in _PASSWORD_PIN_PATTERNS:
-        if pattern.search(cleaned):
-            raise ValueError(
-                "Memory content contains sensitive personal credentials (password or PIN)."
-            )
-
-    # 3. Check API keys, tokens, and private keys
-    for pattern in _CREDENTIAL_PATTERNS:
-        if pattern.search(cleaned):
-            raise ValueError(
-                "Memory content contains sensitive credentials, API keys, or private keys."
-            )
-
-    # 4. Check government and national identifiers (Aadhaar, PAN, SSN)
-    for pattern in _INDIAN_IDENTIFIER_PATTERNS:
-        if pattern.search(cleaned):
-            raise ValueError(
-                "Memory content contains sensitive personal identity numbers (Aadhaar or PAN)."
-            )
-    if _SSN_PATTERN.search(cleaned):
-        raise ValueError("Memory content contains sensitive government identification numbers.")
-
-    # 5. Check financial credit card details with Luhn validation
-    for match in _CREDIT_CARD_CANDIDATE_PATTERN.finditer(cleaned):
-        card_str = match.group()
-        if is_luhn_valid(card_str):
-            raise ValueError("Memory content contains sensitive financial card details.")
 
     # 2. Check passwords and PINs
     for pattern in _PASSWORD_PIN_PATTERNS:
@@ -306,7 +269,7 @@ class ConversationListResponse(BaseModel):
 
 MemoryCategory = Literal["preference", "fact", "project", "biography", "instruction"]
 MemoryOrigin = Literal["explicit", "inferred"]
-MemoryStatus = Literal["candidate", "active", "superseded", "deleted"]
+MemoryStatus = Literal["candidate", "active", "superseded", "deleted", "rejected"]
 
 
 class MemoryCreate(BaseModel):
@@ -363,11 +326,12 @@ class MemoryCreate(BaseModel):
     @model_validator(mode="after")
     def validate_invariants(self) -> Self:
         """Validate invariant rules for memory creation."""
-        if self.status in ("superseded", "deleted"):
+        if self.status in ("superseded", "deleted", "rejected"):
             raise ValueError(f"A new memory cannot be created directly in '{self.status}' state.")
-        if self.origin == "inferred" and self.confidence < 0.75 and self.status == "active":
+        if self.origin == "inferred" and self.status == "active":
             raise ValueError(
-                "An inferred memory with confidence below 0.75 cannot be created directly as active (must be 'candidate')."
+                "An inferred memory cannot be created as active: it must be a 'candidate' "
+                "suggestion until the user approves it."
             )
         if self.origin == "explicit" and self.confidence < 0.90:
             raise ValueError(
@@ -436,6 +400,24 @@ class MemoryUpdate(BaseModel):
         return self
 
 
+class MemoryApprove(BaseModel):
+    """Optional body for approving a memory suggestion, allowing the user to edit it first."""
+
+    content: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=5000,
+        description="Optional corrected text to store instead of the suggested text",
+    )
+
+    @field_validator("content")
+    @classmethod
+    def validate_content(cls, v: str | None) -> str | None:
+        if v is not None:
+            return validate_memory_content_security(v)
+        return v
+
+
 class MemoryRead(BaseModel):
     """Schema representing a stored memory record."""
 
@@ -447,7 +429,9 @@ class MemoryRead(BaseModel):
     origin: str = Field(description="Origin: explicit or inferred")
     confidence: float = Field(description="Confidence score")
     importance: float = Field(description="Importance score")
-    status: str = Field(description="Lifecycle status: candidate, active, superseded, deleted")
+    status: str = Field(
+        description="Lifecycle status: candidate (pending suggestion), active, superseded, deleted, rejected",
+    )
     superseded_by_id: str | None = Field(
         default=None,
         description="Identifier of newer memory replacing this record",

@@ -2,11 +2,15 @@
 
 from typing import Any
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.memory.models import Conversation, Memory, Message, generate_uuid, utc_now
+
+# Metadata keys written on a memory whose superseding memory was permanently deleted.
+SUPERSEDED_BY_DELETED_KEY = "superseded_by_deleted"
+FORMER_SUCCESSOR_KEY = "former_superseded_by_id"
 
 
 class ConversationRepository:
@@ -45,6 +49,11 @@ class ConversationRepository:
             stmt = stmt.options(selectinload(Conversation.messages))
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def count_messages(self, conversation_id: str) -> int:
+        """Count a conversation's messages with SQL COUNT (never loads message rows)."""
+        stmt = select(func.count(Message.id)).where(Message.conversation_id == conversation_id)
+        return int((await self.session.execute(stmt)).scalar() or 0)
 
     async def list_conversations(
         self,
@@ -100,6 +109,11 @@ class ConversationRepository:
         if not conv:
             return False
 
+        # Remove messages with one statement instead of loading them for ORM cascade. This does
+        # not depend on SQLite's foreign_keys pragma being enabled on the connection.
+        await self.session.execute(
+            delete(Message).where(Message.conversation_id == conversation_id)
+        )
         await self.session.delete(conv)
         await self.session.flush()
         return True
@@ -308,6 +322,7 @@ class MemoryRepository:
             return False, None
 
         if hard:
+            await self._detach_superseded_predecessors(memory)
             await self.session.delete(memory)
         else:
             memory.status = "deleted"
@@ -315,6 +330,40 @@ class MemoryRepository:
 
         await self.session.flush()
         return True, memory
+
+    async def _detach_superseded_predecessors(self, memory: Memory) -> int:
+        """Keep supersession lineage truthful before ``memory`` is purged.
+
+        Memories that were superseded BY ``memory`` must not silently lose that link when the
+        row disappears (the foreign key alone would just null it, leaving a superseded memory
+        with no recorded successor). Their status is never touched, so nothing is reactivated.
+
+        * If ``memory`` was itself superseded by a live memory, predecessors are re-linked
+          to that memory (chain A -> B -> C, purge B  =>  A -> C).
+        * Otherwise predecessors get an explicit tombstone in their metadata
+          (``superseded_by_deleted`` plus ``former_superseded_by_id``).
+
+        Returns the number of predecessors updated.
+        """
+        stmt = select(Memory).where(Memory.superseded_by_id == memory.id, Memory.id != memory.id)
+        predecessors = list((await self.session.execute(stmt)).scalars().all())
+        successor_id = memory.superseded_by_id
+
+        for pred in predecessors:
+            if successor_id and successor_id != pred.id:
+                pred.superseded_by_id = successor_id
+            else:
+                pred.superseded_by_id = None
+                pred.metadata_json = {
+                    **(pred.metadata_json or {}),
+                    SUPERSEDED_BY_DELETED_KEY: True,
+                    FORMER_SUCCESSOR_KEY: memory.id,
+                }
+            pred.updated_at = utc_now()
+
+        if predecessors:
+            await self.session.flush()
+        return len(predecessors)
 
     async def touch_memory_access(self, memory_id: str) -> None:
         """Update last_accessed_at and access_count when retrieved for prompt context injection."""

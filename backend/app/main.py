@@ -27,6 +27,7 @@ from app.providers.base import (
     ProviderError,
     ProviderResponseError,
     ProviderTimeoutError,
+    describe_error,
 )
 from app.providers.router import ProviderRouter
 
@@ -104,12 +105,12 @@ def create_app() -> FastAPI:
     async def provider_connection_error_handler(
         request: Request, exc: ProviderConnectionError
     ) -> JSONResponse:
-        logger.error("Provider connection error: %s", exc)
+        logger.error("Provider connection error: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             content={
                 "error": "Provider connection failed",
-                "detail": str(exc),
+                "detail": exc.safe_message,
                 "provider": exc.provider,
             },
         )
@@ -118,12 +119,12 @@ def create_app() -> FastAPI:
     async def provider_timeout_error_handler(
         request: Request, exc: ProviderTimeoutError
     ) -> JSONResponse:
-        logger.error("Provider timeout: %s", exc)
+        logger.error("Provider timeout: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
             content={
                 "error": "Provider timeout",
-                "detail": str(exc),
+                "detail": exc.safe_message,
                 "provider": exc.provider,
             },
         )
@@ -132,24 +133,24 @@ def create_app() -> FastAPI:
     async def provider_response_error_handler(
         request: Request, exc: ProviderResponseError
     ) -> JSONResponse:
-        logger.error("Provider response error: %s", exc)
+        logger.error("Provider response error: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
             content={
                 "error": "Provider response error",
-                "detail": str(exc),
+                "detail": exc.safe_message,
                 "provider": exc.provider,
             },
         )
 
     @app.exception_handler(ProviderError)
     async def provider_generic_error_handler(request: Request, exc: ProviderError) -> JSONResponse:
-        logger.error("Provider generic error: %s", exc)
+        logger.error("Provider generic error: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             content={
                 "error": "Provider error",
-                "detail": str(exc),
+                "detail": exc.safe_message,
                 "provider": exc.provider,
             },
         )

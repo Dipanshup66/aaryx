@@ -28,6 +28,8 @@ from app.providers.base import (
     ProviderResponseError,
     ProviderTimeoutError,
     TokenUsage,
+    describe_error,
+    safe_url,
 )
 
 logger = get_logger("providers.openai")
@@ -114,9 +116,9 @@ class OpenAIProvider(LLMProvider):
                 f"OpenAI request timed out after {self.timeout}s", provider="openai"
             ) from exc
         except (httpx.ConnectError, httpx.NetworkError) as exc:
-            logger.error("Failed to connect to OpenAI at %s", self.base_url)
+            logger.error("Failed to connect to OpenAI at %s", safe_url(self.base_url))
             raise ProviderConnectionError(
-                f"Cannot connect to OpenAI service at {self.base_url}", provider="openai"
+                f"Cannot connect to OpenAI service at {safe_url(self.base_url)}", provider="openai"
             ) from exc
         except httpx.HTTPStatusError as exc:
             code = exc.response.status_code
@@ -124,17 +126,21 @@ class OpenAIProvider(LLMProvider):
             logger.error("OpenAI returned HTTP error status %d", code)
             if code in (401, 403):
                 raise ProviderResponseError(
-                    f"OpenAI authentication error ({code}): {text}", provider="openai"
+                    f"OpenAI authentication error ({code}): {text}",
+                    provider="openai",
+                    status_code=code,
                 ) from exc
             if code == 429:
                 raise ProviderResponseError(
-                    f"OpenAI rate limit or quota exceeded ({code}): {text}", provider="openai"
+                    f"OpenAI rate limit or quota exceeded ({code}): {text}",
+                    provider="openai",
+                    status_code=code,
                 ) from exc
             raise ProviderResponseError(
-                f"OpenAI returned HTTP {code}: {text}", provider="openai"
+                f"OpenAI returned HTTP {code}: {text}", provider="openai", status_code=code
             ) from exc
         except (httpx.HTTPError, json.JSONDecodeError, KeyError, IndexError) as exc:
-            logger.error("Failed to parse OpenAI response: %s", exc)
+            logger.error("Failed to parse OpenAI response: %s", exc.__class__.__name__)
             raise ProviderResponseError(
                 f"Invalid response from OpenAI: {exc}", provider="openai"
             ) from exc
@@ -191,17 +197,23 @@ class OpenAIProvider(LLMProvider):
                     error_body = await response.aread()
                     code = response.status_code
                     text = error_body.decode(errors="replace")
-                    logger.error("OpenAI streaming returned HTTP %d: %s", code, text)
+                    logger.error("OpenAI streaming returned HTTP %d", code)
                     if code in (401, 403):
                         raise ProviderResponseError(
-                            f"OpenAI authentication error ({code}): {text}", provider="openai"
+                            f"OpenAI authentication error ({code}): {text}",
+                            provider="openai",
+                            status_code=code,
                         )
                     if code == 429:
                         raise ProviderResponseError(
-                            f"OpenAI rate limit exceeded ({code}): {text}", provider="openai"
+                            f"OpenAI rate limit exceeded ({code}): {text}",
+                            provider="openai",
+                            status_code=code,
                         )
                     raise ProviderResponseError(
-                        f"OpenAI streaming error ({code}): {text}", provider="openai"
+                        f"OpenAI streaming error ({code}): {text}",
+                        provider="openai",
+                        status_code=code,
                     )
 
                 async for line in response.aiter_lines():
@@ -260,11 +272,13 @@ class OpenAIProvider(LLMProvider):
             ) from exc
         except (httpx.ConnectError, httpx.NetworkError) as exc:
             raise ProviderConnectionError(
-                f"Cannot connect to OpenAI at {self.base_url}: {exc}", provider="openai"
+                f"Cannot connect to OpenAI at {safe_url(self.base_url)}: {exc}", provider="openai"
             ) from exc
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
             raise ProviderResponseError(
-                f"Failed to retrieve OpenAI models: {exc}", provider="openai"
+                f"Failed to retrieve OpenAI models: {exc}",
+                provider="openai",
+                status_code=getattr(getattr(exc, "response", None), "status_code", None),
             ) from exc
 
         model_items = data.get("data", [])
@@ -285,18 +299,18 @@ class OpenAIProvider(LLMProvider):
                 healthy=True,
                 provider="openai",
                 details={
-                    "base_url": self.base_url,
+                    "base_url": safe_url(self.base_url),
                     "default_model": self.default_model,
                     "model_count": len(models),
                 },
             )
         except ProviderError as exc:
-            logger.warning("OpenAI health check failed: %s", exc)
+            logger.warning("OpenAI health check failed: %s", describe_error(exc))
             return ProviderHealth(
                 healthy=False,
                 provider="openai",
-                details={"base_url": self.base_url, "default_model": self.default_model},
-                error=str(exc),
+                details={"base_url": safe_url(self.base_url), "default_model": self.default_model},
+                error=describe_error(exc),
             )
 
     async def aclose(self) -> None:

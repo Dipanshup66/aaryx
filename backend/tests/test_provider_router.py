@@ -275,7 +275,9 @@ def test_invalid_provider_configuration_rejected():
 async def test_permanent_authentication_error_does_not_trigger_retry(chat_request):
     """9. Verify 401 Authentication error fails fast without retry or fallback."""
     auth_err = ProviderResponseError(
-        "OpenAI authentication error (401): Invalid key", provider="mock_primary"
+        "OpenAI authentication error (401): Invalid key",
+        provider="mock_primary",
+        status_code=401,
     )
     primary = MockRouterTestProvider("mock_primary", fail_generate_times=5, generate_error=auth_err)
     fallback = MockRouterTestProvider("mock_fallback")
@@ -456,12 +458,26 @@ def test_is_transient_error_helper():
     """Verify is_transient_error accurately categorizes errors."""
     assert is_transient_error(ProviderTimeoutError("timeout")) is True
     assert is_transient_error(ProviderConnectionError("conn dropped")) is True
-    assert is_transient_error(ProviderResponseError("500 Internal Server Error")) is True
-    assert is_transient_error(ProviderResponseError("429 Rate limit exceeded")) is True
+    assert (
+        is_transient_error(ProviderResponseError("500 Internal Server Error", status_code=500))
+        is True
+    )
+    assert (
+        is_transient_error(ProviderResponseError("429 Rate limit exceeded", status_code=429))
+        is True
+    )
 
     # Permanent
     assert is_transient_error(ProviderConfigurationError("Missing key")) is False
     assert is_transient_error(UnsupportedProviderError("Unknown")) is False
-    assert is_transient_error(ProviderResponseError("401 Unauthorized: Invalid API Key")) is False
-    assert is_transient_error(ProviderResponseError("403 Forbidden")) is False
-    assert is_transient_error(ProviderResponseError("400 Bad Request: Invalid model")) is False
+    assert (
+        is_transient_error(
+            ProviderResponseError("401 Unauthorized: Invalid API Key", status_code=401)
+        )
+        is False
+    )
+    assert is_transient_error(ProviderResponseError("403 Forbidden", status_code=403)) is False
+    assert (
+        is_transient_error(ProviderResponseError("400 Bad Request: Invalid model", status_code=400))
+        is False
+    )

@@ -174,17 +174,28 @@ class Settings(BaseSettings):
         default="qwen3.5:4b",
         description="Local Ollama model identifier used for memory extraction",
     )
-    memory_auto_store_min_confidence: float = Field(
-        default=0.75,
-        ge=0.0,
-        le=1.0,
-        description="Minimum confidence score for automatic promotion to active memory",
+    memory_max_context_items: int = Field(
+        default=8,
+        ge=0,
+        le=50,
+        description=(
+            "Maximum number of active long-term memories added to the prompt each turn. "
+            "Set to 0 to stop injecting memories into prompts."
+        ),
+    )
+    memory_suggestions_enabled: bool = Field(
+        default=True,
+        description=(
+            "Whether AARYX may suggest memories inferred from conversation. Suggestions are "
+            "always stored as pending 'candidate' memories and only become active after user "
+            "approval. When false, only explicit 'remember this' requests create memories."
+        ),
     )
     memory_candidate_min_confidence: float = Field(
         default=0.60,
         ge=0.0,
         le=1.0,
-        description="Minimum confidence score for candidate memory storage; below this is discarded",
+        description="Minimum confidence score for storing a memory suggestion; below this is discarded",
     )
 
     # Logging and Server Settings

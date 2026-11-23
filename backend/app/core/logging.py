@@ -18,6 +18,20 @@ _SENSITIVE_PATTERNS = [
     re.compile(r"(token[_-]?[\"'\s:=]+)[a-zA-Z0-9_\-\.]+", re.IGNORECASE),
 ]
 
+# Credentials inside URLs. Single definition, shared with app.providers.base.redact_secrets.
+URL_SECRET_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
+    # scheme://user:pass@host  or  scheme://token@host
+    (re.compile(r"(://)[^\s/?#@]+@"), r"\1[REDACTED]@"),
+    # secret-bearing query parameters
+    (
+        re.compile(
+            r"(?i)([?&;](?:api[_-]?key|key|token|access[_-]?token|auth|authorization|"
+            r"signature|sig|secret|password|passwd|pwd|x-api-key)=)[^&\s#\"']+"
+        ),
+        r"\1[REDACTED]",
+    ),
+)
+
 _SENSITIVE_KEY_NAMES = {
     "password",
     "pwd",
@@ -33,9 +47,19 @@ _SENSITIVE_KEY_NAMES = {
 
 def redact_sensitive_text(text: str) -> str:
     """Scrub sensitive credentials (bearer tokens, API keys, passwords, secrets) from text."""
+    for url_pattern, url_replacement in URL_SECRET_PATTERNS:
+        text = url_pattern.sub(url_replacement, text)
     for pattern in _SENSITIVE_PATTERNS:
         text = pattern.sub(r"\g<1>[REDACTED]", text)
     return text
+
+
+def _scrub_arg(arg: object) -> object:
+    """Redact a log argument. Numbers/None keep their type so %d / %f formatting still works;
+    every other object (str, httpx.URL, exceptions, ...) is rendered and redacted."""
+    if arg is None or isinstance(arg, (bool, int, float)):
+        return arg
+    return redact_sensitive_text(arg if isinstance(arg, str) else str(arg))
 
 
 class SensitiveDataFilter(logging.Filter):
@@ -47,10 +71,7 @@ class SensitiveDataFilter(logging.Filter):
 
         if record.args:
             if isinstance(record.args, tuple):
-                record.args = tuple(
-                    redact_sensitive_text(arg) if isinstance(arg, str) else arg
-                    for arg in record.args
-                )
+                record.args = tuple(_scrub_arg(arg) for arg in record.args)
             elif isinstance(record.args, dict):
                 record.args = {
                     k: (
@@ -80,6 +101,23 @@ class StructuredFormatter(logging.Formatter):
         """Format the record and scrub sensitive text from message and tracebacks."""
         formatted = super().format(record)
         return redact_sensitive_text(formatted)
+
+
+def protect_third_party_loggers() -> None:
+    """Attach the redaction filter to HTTP client loggers that live outside 'aaryx.*'.
+
+    httpx logs every request at INFO including the full URL, which can carry credentials
+    (``https://user:pass@host`` or ``?api_key=...``). A logger-level filter runs before any
+    handler, so it protects whatever logging configuration the host process uses.
+    Idempotent.
+    """
+    for name in ("httpx", "httpcore"):
+        target = logging.getLogger(name)
+        if not any(isinstance(f, SensitiveDataFilter) for f in target.filters):
+            target.addFilter(SensitiveDataFilter())
+
+
+protect_third_party_loggers()
 
 
 def setup_logging(

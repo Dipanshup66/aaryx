@@ -569,19 +569,21 @@ async def test_api_validation_and_not_found_errors(
 async def test_invariant_1_inferred_memory_confidence_threshold(
     temp_db: tuple[AsyncEngine, async_sessionmaker[AsyncSession]],
 ) -> None:
-    """Invariant 1: An inferred memory with confidence below 0.75 cannot be created or updated directly as active."""
+    """Invariant 1 (D-001): an inferred memory can never be created as active; only a candidate."""
     _engine, session_factory = temp_db
     service = MemoryService(session_factory=session_factory)
 
-    # Low-confidence inferred memory directly as active must fail validation
-    with pytest.raises(
-        ValueError, match="confidence below 0.75 cannot be created directly as active"
-    ):
-        MemoryCreate(
-            content="User might like tea", origin="inferred", confidence=0.70, status="active"
-        )
+    # Inferred memory directly as active must fail validation, whatever the confidence
+    for confidence in (0.70, 0.85, 1.0):
+        with pytest.raises(ValueError, match="inferred memory cannot be created as active"):
+            MemoryCreate(
+                content="User might like tea",
+                origin="inferred",
+                confidence=confidence,
+                status="active",
+            )
 
-    # Low-confidence inferred memory as candidate must succeed
+    # Inferred memory as candidate (pending suggestion) must succeed
     cand = await service.create_memory(
         MemoryCreate(
             content="User might like tea", origin="inferred", confidence=0.70, status="candidate"
@@ -589,14 +591,10 @@ async def test_invariant_1_inferred_memory_confidence_threshold(
     )
     assert cand.status == "candidate"
 
-    # Updating active memory to low confidence while remaining active must be rejected
-    high_conf = await service.create_memory(
-        MemoryCreate(content="User loves tea", origin="inferred", confidence=0.85, status="active")
-    )
-    with pytest.raises(
-        MemoryValidationError, match="confidence below 0.75 cannot have active status"
-    ):
-        await service.update_memory(high_conf.id, MemoryUpdate(confidence=0.60))
+    # A suggestion cannot be activated through a plain update; it must be approved
+    with pytest.raises(MemoryValidationError, match="approve the suggestion"):
+        await service.update_memory(cand.id, MemoryUpdate(status="active"))
+    assert (await service.get_memory(cand.id)).status == "candidate"  # type: ignore[union-attr]
 
 
 def test_invariant_2_explicit_memory_confidence_consistency() -> None:

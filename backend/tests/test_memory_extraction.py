@@ -253,12 +253,12 @@ Evaluating user preferences from conversation turn...
     assert candidates[0].content == "User prefers using PostgreSQL over MySQL"
     assert candidates[0].category == "preference"
     assert candidates[0].confidence == 0.88
-    assert candidates[0].status == "active"  # >= 0.75
+    assert candidates[0].status == "candidate"  # inferred is always a suggestion
 
     assert candidates[1].content == "User is building an AI assistant called AARYX"
     assert candidates[1].category == "project"
     assert candidates[1].confidence == 0.95
-    assert candidates[1].status == "active"
+    assert candidates[1].status == "candidate"
 
 
 @pytest.mark.asyncio
@@ -278,7 +278,7 @@ async def test_inferred_extractor_malformed_json_handled_safely() -> None:
 
 @pytest.mark.asyncio
 async def test_inferred_extractor_confidence_threshold_gating() -> None:
-    """Verify confidence rules: >=0.75 active, 0.60-0.74 candidate, <0.60 discarded."""
+    """Verify confidence rules: >=0.60 stored as a candidate suggestion, <0.60 discarded."""
     llm_output = json.dumps(
         [
             {
@@ -309,7 +309,7 @@ async def test_inferred_extractor_confidence_threshold_gating() -> None:
     assert len(candidates) == 2
 
     assert candidates[0].confidence == 0.85
-    assert candidates[0].status == "active"
+    assert candidates[0].status == "candidate"  # high confidence never auto-activates
 
     assert candidates[1].confidence == 0.65
     assert candidates[1].status == "candidate"
@@ -347,8 +347,8 @@ async def test_exact_duplicate_detection_and_refresh(
         MemoryCreate(
             content="User prefers dark mode UI.",
             category="preference",
-            origin="inferred",
-            confidence=0.80,
+            origin="explicit",
+            confidence=0.90,
             importance=3.0,
             status="active",
         )

@@ -27,17 +27,39 @@ from app.providers.base import (
     ProviderResponseError,
     ProviderTimeoutError,
     UnsupportedProviderError,
+    describe_error,
 )
 from app.providers.factory import create_provider, get_supported_providers
 
 logger = get_logger("providers.router")
 
 
+def _safe_error_text(exc: Exception) -> str:
+    """Return exception text that is safe to expose in health/diagnostic payloads and logs."""
+    return describe_error(exc)
+
+
+# HTTP statuses worth retrying / failing over on: request timeout, rate limit, any server error.
+_TRANSIENT_STATUS_CODES = frozenset({408, 429})
+
+
+def is_transient_status(status_code: int) -> bool:
+    """Return True if an HTTP status indicates a temporary condition (408, 429, 5xx)."""
+    return status_code in _TRANSIENT_STATUS_CODES or 500 <= status_code <= 599
+
+
 def is_transient_error(exc: Exception) -> bool:
     """Determine if an error is transient and eligible for retry or fallback.
 
-    Permanent errors (e.g. authentication failures, bad requests, missing API keys)
-    must fail immediately and never trigger retries or fallback.
+    Classification uses the structured exception type and ``ProviderError.status_code``;
+    the human-readable message is never parsed.
+
+    * Configuration / unsupported-provider errors are permanent.
+    * Timeouts and connection failures are transient.
+    * HTTP responses: 408, 429 and 5xx are transient; every other status (400, 401, 403, 404,
+      422, ...) is a permanent client-side error that must not be retried or sent to a fallback.
+    * A ``ProviderResponseError`` without an HTTP status (malformed payload, truncated stream)
+      keeps the pre-existing policy and is treated as transient.
     """
     if isinstance(exc, (ProviderConfigurationError, UnsupportedProviderError)):
         return False
@@ -46,21 +68,41 @@ def is_transient_error(exc: Exception) -> bool:
         return True
 
     if isinstance(exc, ProviderResponseError):
-        msg = str(exc).lower()
-        # Authentication / authorization / client request errors are permanent
-        if any(
-            phrase in msg
-            for phrase in ("401", "403", "authentication", "invalid_api_key", "invalid api key")
-        ):
-            return False
-        if any(phrase in msg for phrase in ("400", "invalid_argument", "bad request")):
-            return False
-        # 429 Rate Limit, 500, 502, 503, 504 are transient
-        if any(code in msg for code in ("429", "500", "502", "503", "504", "rate limit")):
-            return True
+        if exc.status_code is not None:
+            return is_transient_status(exc.status_code)
         return True
 
     return False
+
+
+# Model-name prefixes that identify each hosted provider's own model catalogue.
+_CLOUD_MODEL_PREFIXES: dict[str, tuple[str, ...]] = {
+    "openai": ("gpt-", "chatgpt-", "o1", "o3", "o4"),
+    "anthropic": ("claude-",),
+    "gemini": ("gemini-", "models/gemini-"),
+}
+
+
+def is_model_compatible(provider_name: str, model: str) -> bool:
+    """Return True if ``model`` is plausibly a valid model identifier for ``provider_name``.
+
+    Hosted providers accept only their own catalogue (recognised by prefix); identifiers that
+    contain ``:`` are Ollama-style ``name:tag`` values and are never valid cloud model ids
+    (except OpenAI fine-tunes, which start with ``ft:``). Local providers accept anything that
+    does not belong to a hosted catalogue.
+    """
+    name = model.strip().lower()
+    if not name:
+        return False
+
+    provider = provider_name.strip().lower()
+    prefixes = _CLOUD_MODEL_PREFIXES.get(provider)
+    if prefixes is not None:
+        if name.startswith("ft:"):
+            return provider == "openai"
+        return ":" not in name and name.startswith(prefixes)
+
+    return not any(is_model_compatible(cloud, name) for cloud in _CLOUD_MODEL_PREFIXES)
 
 
 class ProviderRouter(LLMProvider):
@@ -186,9 +228,28 @@ class ProviderRouter(LLMProvider):
         self._last_failure = {
             "provider": provider_name,
             "error_type": exc.__class__.__name__,
-            "message": str(exc),
+            "status_code": getattr(exc, "status_code", None),
+            "message": _safe_error_text(exc),
             "transient": is_transient_error(exc),
         }
+
+    def _fallback_request(self, request: ChatRequest, fallback_name: str) -> ChatRequest:
+        """Return the request to send to the fallback provider.
+
+        A per-request ``model`` override was chosen for the primary provider. If it is not a
+        valid identifier for the fallback provider it is dropped so the fallback uses its own
+        configured model instead of failing with a 400/404. Compatible overrides are preserved.
+        The caller's request object is never mutated.
+        """
+        if request.model is None or is_model_compatible(fallback_name, request.model):
+            return request
+        logger.warning(
+            "Model override '%s' is not valid for fallback provider '%s'; "
+            "using the fallback provider's configured model",
+            request.model,
+            fallback_name,
+        )
+        return request.model_copy(update={"model": None})
 
     async def generate(self, request: ChatRequest) -> ChatResponse:
         """Generate a complete chat completion via primary provider with optional fallback.
@@ -217,7 +278,7 @@ class ProviderRouter(LLMProvider):
                     primary_name,
                     attempt + 1,
                     max_retries + 1,
-                    exc,
+                    describe_error(exc),
                 )
 
         # Record primary provider failure
@@ -229,7 +290,7 @@ class ProviderRouter(LLMProvider):
             logger.error(
                 "Primary provider '%s' failed and fallback is disabled: %s",
                 primary_name,
-                last_primary_error,
+                describe_error(last_primary_error),
             )
             raise last_primary_error
 
@@ -237,7 +298,7 @@ class ProviderRouter(LLMProvider):
             logger.error(
                 "Primary provider '%s' failed with permanent error: %s. Fallback aborted.",
                 primary_name,
-                last_primary_error,
+                describe_error(last_primary_error),
             )
             raise last_primary_error
 
@@ -260,19 +321,23 @@ class ProviderRouter(LLMProvider):
         logger.warning(
             "Primary provider '%s' failed (%s). Initiating fallback to '%s'",
             primary_name,
-            last_primary_error,
+            describe_error(last_primary_error),
             fallback_name,
         )
 
         try:
             fallback = await self.get_provider(fallback_name)
-            response = await fallback.generate(request)
+            response = await fallback.generate(self._fallback_request(request, fallback_name))
             if response.provider is None:
                 response.provider = fallback_name
             return response
         except (ProviderError, httpx.HTTPError, OSError) as fallback_exc:
             self._record_failure(fallback_name, fallback_exc)
-            logger.error("Fallback provider '%s' also failed: %s", fallback_name, fallback_exc)
+            logger.error(
+                "Fallback provider '%s' also failed: %s",
+                fallback_name,
+                describe_error(fallback_exc),
+            )
             raise fallback_exc from last_primary_error
 
     async def stream(self, request: ChatRequest) -> AsyncIterator[ChatStreamChunk]:
@@ -302,7 +367,7 @@ class ProviderRouter(LLMProvider):
                     "Fallback strictly prohibited to prevent duplicate response text.",
                     primary_name,
                     chunks_emitted,
-                    exc,
+                    describe_error(exc),
                 )
                 raise
             primary_failed_before_first_chunk = True
@@ -315,7 +380,7 @@ class ProviderRouter(LLMProvider):
                 logger.error(
                     "Primary stream on '%s' failed and fallback is disabled: %s",
                     primary_name,
-                    primary_error,
+                    describe_error(primary_error),
                 )
                 raise primary_error
 
@@ -323,7 +388,7 @@ class ProviderRouter(LLMProvider):
                 logger.error(
                     "Primary stream on '%s' failed with permanent error: %s. Fallback skipped.",
                     primary_name,
-                    primary_error,
+                    describe_error(primary_error),
                 )
                 raise primary_error
 
@@ -342,13 +407,13 @@ class ProviderRouter(LLMProvider):
             logger.warning(
                 "Primary provider '%s' stream failed before first chunk (%s). Falling back to '%s'",
                 primary_name,
-                primary_error,
+                describe_error(primary_error),
                 fallback_name,
             )
 
             try:
                 fallback = await self.get_provider(fallback_name)
-                async for chunk in fallback.stream(request):
+                async for chunk in fallback.stream(self._fallback_request(request, fallback_name)):
                     if chunk.provider is None:
                         chunk.provider = fallback_name
                     yield chunk
@@ -357,7 +422,7 @@ class ProviderRouter(LLMProvider):
                 logger.error(
                     "Fallback provider '%s' stream failed: %s",
                     fallback_name,
-                    fallback_exc,
+                    describe_error(fallback_exc),
                 )
                 raise fallback_exc from primary_error
 
@@ -446,7 +511,7 @@ class ProviderRouter(LLMProvider):
             primary_health = ProviderHealth(
                 healthy=False,
                 provider=self._primary_name,
-                error=str(exc),
+                error=_safe_error_text(exc),
             )
 
         fallback_health: ProviderHealth | None = None
@@ -458,7 +523,7 @@ class ProviderRouter(LLMProvider):
                 fallback_health = ProviderHealth(
                     healthy=False,
                     provider=self._fallback_name,
-                    error=str(exc),
+                    error=_safe_error_text(exc),
                 )
 
         overall_healthy = primary_health.healthy or (
