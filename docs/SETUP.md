@@ -79,7 +79,7 @@ From the `backend/` folder with the virtual environment active:
 python -m app
 ```
 
-Add `--reload` while developing. The address comes from `API_HOST` and `API_PORT` in `.env` (default `127.0.0.1:8000`, reachable only from this computer). `python -m app` refuses to listen on any other address unless `API_TOKEN` is set. Avoid starting `uvicorn` by hand with `--host 0.0.0.0`: that skips this safety check.
+Add `--reload` while developing. The address comes from `API_HOST` and `API_PORT` in `.env` (default `127.0.0.1:8000`, reachable only from this computer). `python -m app` refuses to listen on any other address unless `API_TOKEN` is set. With `--reload`, every restarted worker repeats the check against the address the launcher bound, so removing `API_TOKEN` from `.env` while the server listens externally makes the worker refuse to start instead of serving without a password. Avoid starting `uvicorn` by hand with `--host 0.0.0.0`: that skips this safety check.
 
 Check it works:
 
@@ -153,7 +153,7 @@ ruff format --check app tests
 
 ## 9. Update the pinned dependencies
 
-Versions live in `backend/requirements.txt` and `backend/requirements-dev.txt` (generated, do not edit by hand). After you change dependencies in `backend/pyproject.toml`, or when you want newer versions:
+Versions live in `backend/requirements.txt` and `backend/requirements-dev.txt` (generated, do not edit by hand). After you change dependencies in `backend/pyproject.toml`, or when you want newer versions. Run the `update_lock.py` commands from the **repository root** (the folder that contains `scripts/` and `backend/`), not from `backend/`:
 
 ```bash
 python -m pip install uv                 # once
@@ -161,7 +161,7 @@ python scripts/update_lock.py            # keep current pins, apply pyproject ch
 python scripts/update_lock.py --upgrade  # move everything to the newest allowed versions
 ```
 
-Then reinstall (the two `pip install` commands in section 2), run `pytest`, and commit both files together with the change. `pytest` fails if the files no longer match `pyproject.toml`.
+Then go back to `backend/`, reinstall (the two `pip install` commands in section 2), run `pytest`, and commit both files together with the change. `pytest` fails if the files no longer match `pyproject.toml`.
 
 ## 10. Back up and restore
 

@@ -30,12 +30,14 @@ All notable changes to AARYX are recorded here, newest first. The format follows
 - LLD rewritten to match the code; READMEs describe what exists today.
 
 ### Fixed
+- Tests no longer depend on `API_*` settings exported in the shell or written in `backend/.env` (they used to fail with `400 Invalid host` or `401`).
 - `pip install -e ".[dev]"` failed because package discovery picked up the `data/` folder.
 - An app built with its own settings (`create_app(settings)`) ignored them at startup and used the cached environment settings instead, so for example `memory_enabled=False` still created the database and a memory service. Startup, the memory service, provider routing, logging and `/health` now all use the app's own settings.
 - Parallel turns could store the same memory suggestion several times, and a double click could approve one suggestion twice.
 - Plurals, inflections and Devanagari text now match memories ("gardens" finds "garden"); identical memories appear once in a prompt; a runaway model can queue at most 5 suggestions per turn.
 
 ### Security
+- `python -m app --reload`: every restarted worker re-checks the address the launcher bound, so removing `API_TOKEN` from `.env` while the server listens on an external address can no longer leave the API open without a password (the worker refuses to start).
 - The API only answers to its configured Host names, and can require a bearer token on every `/api` call.
 - Settings validation errors never print API keys or the API token.
 

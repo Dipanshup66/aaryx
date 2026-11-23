@@ -110,7 +110,7 @@ New work is named by milestone (M-number) and task id from `06-EXECUTION-PLAN.md
 - [ ] Privacy and security review, known-limitations document (P7-6, P7-7).
 
 ### Cross-cutting (done)
-- [x] Local API protection: loopback-only bind rule, Host guard, optional API token, CORS limited to the desktop app (P0-11).
+- [x] Local API protection: loopback is the default bind and any other address requires an API token (re-checked by every `--reload` worker), Host guard, optional API token, CORS limited to the desktop app (P0-11).
 - [x] CI, `.env.example` kept in sync with settings, versioned changelog, pinned dependencies (P0-8, P0-7, P0-13, P0-15).
 
 ## 2a. Decision log
@@ -132,7 +132,7 @@ Open decisions (D-003 memories to cloud, D-004 emotion signals, D-005 voice prov
 | Unsafe computer actions | Medium | High | Allowlist, preview, approval, audit |
 | Avatar licensing issue | Medium | Medium | Use assets with commercial-use rights |
 | Cross-platform differences | High | Medium | OS abstraction and Windows test milestone |
-| Local API reached by a web page or other computers | Medium | High | Loopback-only bind rule, Host guard against DNS rebinding, optional API token, narrow CORS (done, P0-11) |
+| Local API reached by a web page or other computers | Medium | High | Loopback is the default bind; any other address needs an API token, re-checked by every reload worker; Host guard against DNS rebinding; narrow CORS (done, P0-11) |
 
 ## 4. Release gates
 ### Personal alpha

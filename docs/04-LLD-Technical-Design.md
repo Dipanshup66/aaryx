@@ -277,7 +277,7 @@ Rules:
 
 Implemented in `core/security.py` and wired in `main.py`; middleware order is Host check → CORS → API token → routes.
 
-- **Bind address:** start the server with `python -m app`, which uses `API_HOST` and `API_PORT` and refuses any non-loopback address unless `API_TOKEN` is set. (Starting `uvicorn` directly bypasses this check; do not use `--host 0.0.0.0` that way.)
+- **Bind address:** start the server with `python -m app`, which uses `API_HOST` and `API_PORT` and refuses any non-loopback address unless `API_TOKEN` is set. With `--reload` the launcher keeps its socket open while every new worker re-reads `.env`, so the launcher records the address it bound in `AARYX_LAUNCH_HOST` and every worker checks it at startup: a worker whose settings have no `API_TOKEN` refuses to start when that address is not loopback. The recorded address, not the current `API_HOST`, decides. (Starting `uvicorn` directly bypasses these checks; do not use `--host 0.0.0.0` that way.)
 - **Host guard:** only Host names in `API_ALLOWED_HOSTS` (default `localhost`, `127.0.0.1`, `[::1]`) are served. A web page cannot reach the API through DNS rebinding because its requests carry the attacker's Host name.
 - **API token:** optional. When set (at least 16 characters), every route except `/health`, `/docs`, `/redoc` and `/openapi.json` needs it as `Authorization: Bearer <token>` or `X-API-Key`; it is compared in constant time, never accepted in the URL, never logged.
 - **CORS:** only the origins in `API_CORS_ORIGINS` (default: the Tauri app origins `tauri://localhost` and `http://tauri.localhost`). Add the UI dev server (for example `http://localhost:1420`) while developing. No wildcards, no credentials. Preflight requests work without a token.
