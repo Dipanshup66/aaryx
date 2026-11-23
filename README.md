@@ -6,10 +6,21 @@ AARYX is a personal-first AI companion project designed for macOS and Windows. T
 
 ## Project status
 
-**Stage:** Planning and repository foundation  
-**Current release:** Not yet implemented  
-**First development target:** macOS  
-**Future target:** Windows compatibility
+**Stage:** Backend working (pre-alpha). The desktop app, voice, avatar and desktop tools are not built yet.  
+**Current release:** none  
+**Target platforms:** macOS and Windows (primary platform still to be decided, see D-002 in `docs/06-EXECUTION-PLAN.md`)
+
+### What works today (backend)
+
+- Chat API with streaming, on a local Ollama model or a cloud provider (OpenAI, Anthropic, Gemini), with retries and an optional, consent-based fallback.
+- Conversation history saved locally in SQLite.
+- Long-term memory you control: say "remember that ..." (English or Hinglish) and it is saved; things AARYX infers are only suggestions until you approve them; approved memories are added to later prompts; everything can be edited or deleted.
+- Safety checks: passwords, keys and ID numbers are never stored as memories; API keys are redacted from logs.
+- About 1000 automated tests.
+
+### What is next
+
+See `docs/06-EXECUTION-PLAN.md` for the full task list (settings API and local/cloud choice, emotional layer, desktop UI, permissioned desktop tools, voice, avatar, release).
 
 ## Repository map
 
@@ -43,6 +54,8 @@ AARYX/
 3. `docs/03-HLD-System-Architecture.md`
 4. `docs/04-LLD-Technical-Design.md`
 5. `docs/05-ROADMAP-Backlog-and-Risks.md`
+6. `docs/06-EXECUTION-PLAN.md` (the task list to work through)
+7. `docs/SETUP.md` (install, run, back up, troubleshoot)
 
 ## Planned technology
 
@@ -67,6 +80,14 @@ AARYX/
 
 ## Getting started
 
-The application code is intentionally scaffolded, not implemented yet. Start with the documentation and then implement Milestone M0/M1 from the roadmap.
+Quick start (details, Ollama setup and troubleshooting are in `docs/SETUP.md`):
 
-Backend setup instructions will be added with the first working backend milestone.
+```bash
+cd backend
+python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\Activate.ps1
+pip install -e ".[dev]"
+cp .env.example .env
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+```
+
+Then open <http://127.0.0.1:8000/docs>. Run the tests with `pytest` from the `backend/` folder.

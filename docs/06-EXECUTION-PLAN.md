@@ -3,7 +3,7 @@
 **Purpose:** one ordered checklist from today's state to Personal v1. Work top to bottom; tick a box only when its "Done when" is true.
 **Companion docs:** `05-ROADMAP` (milestones M0–M8, risks, release gates, decision log).
 **Size:** S = under half a day, M = 1–3 days, L = about a week or more. These are rough guides, not promises.
-**Last updated:** 2026-11-24 (requirements traceability check added)
+**Last updated:** 2026-11-24 (P0-3..P0-8 done)
 
 ## Where we are
 
@@ -24,12 +24,12 @@
 
 - [ ] **P0-1 (S)** Commit all current work in logical commits (providers, memory, chat integration, tests, docs). *Done when:* `git status` is clean and `git log` shows the history.
 - [ ] **P0-2 (S)** Decide the primary development platform (docs say macOS first, work happens on Windows). Record as decision D-002. *Done when:* roadmap/PRD/README agree on it.
-- [ ] **P0-3 (S)** Fix `pip install -e backend[dev]` (set packages to `app*` in `pyproject.toml`). *Done when:* a fresh venv installs and `pytest` runs from the documented steps.
-- [ ] **P0-4 (S)** Write `docs/SETUP.md`: install, `.env`, run server, run tests, Ollama setup, recovery. *Done when:* a fresh machine follows it without help (PRD acceptance #7).
-- [ ] **P0-5 (S)** Update root `README.md` and `backend/README.md` (status, how to run). Remove the "not yet implemented" text.
-- [ ] **P0-6 (S)** Fix the literal `\n` at the end of the 11 folder README files.
-- [ ] **P0-7 (S)** Update `.env.example` with every setting (`MEMORY_SUGGESTIONS_ENABLED`, `MEMORY_MAX_CONTEXT_ITEMS`, `MEMORY_CANDIDATE_MIN_CONFIDENCE`, ...). Remove the dead auto-store setting if present.
-- [ ] **P0-8 (S)** Add CI (GitHub Actions): ruff check, ruff format --check, pytest. *Done when:* a push runs it and it is green.
+- [x] **P0-3 (S)** Fix `pip install -e backend[dev]` (set packages to `app*` in `pyproject.toml`). *Done when:* a fresh venv installs and `pytest` runs from the documented steps. Done: `[build-system]` and `packages.find include = ["app*"]` added; verified in a fresh venv.
+- [x] **P0-4 (S)** Write `docs/SETUP.md`: install, `.env`, run server, run tests, Ollama setup, recovery. *Done when:* a fresh machine follows it without help (PRD acceptance #7). Done: `docs/SETUP.md`; the run commands were executed against the real server.
+- [x] **P0-5 (S)** Update root `README.md` and `backend/README.md` (status, how to run). Remove the "not yet implemented" text. Done: root and backend READMEs rewritten.
+- [x] **P0-6 (S)** Fix the literal `\n` at the end of the 11 folder README files. Done: 15 README files had the literal `\n` (not 11); the 5 outdated module READMEs now describe the real code.
+- [x] **P0-7 (S)** Update `.env.example` with every setting (`MEMORY_SUGGESTIONS_ENABLED`, `MEMORY_MAX_CONTEXT_ITEMS`, `MEMORY_CANDIDATE_MIN_CONFIDENCE`, ...). Remove the dead auto-store setting if present. Done: every setting is in `.env.example`; `tests/test_env_example.py` fails if it drifts.
+- [x] **P0-8 (S)** Add CI (GitHub Actions): ruff check, ruff format --check, pytest. *Done when:* a push runs it and it is green. Done: `.github/workflows/ci.yml` (ubuntu py3.11 and py3.13, windows py3.13). Its first run on GitHub is not yet confirmed green.
 - [ ] **P0-9 (M)** Bring the LLD in line with the code: `conversation_id`, `/api/memories`, provider interface, config, repo tree, error format. *Done when:* nothing in the LLD contradicts the code.
 - [ ] **P0-10 (S)** Update the roadmap: statuses on M0–M3, backlog for M7 and M8, map "Phase 3 Step 2.2" naming to M-numbers.
 - [ ] **P0-11 (M)** Local API safety: confirm default bind is `127.0.0.1`, add CORS for the future UI origin, add an optional API token for use beyond loopback. *Done when:* tests cover bind/CORS/token and docs describe them.
