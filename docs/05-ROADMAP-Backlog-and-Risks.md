@@ -8,7 +8,7 @@
 
 | Milestone | Main deliverable | Exit criteria | Status |
 |---|---|---|---|
-| M0 — Project setup | Repo, environment, docs, coding standards | Clean setup works on Mac | Mostly done. Setup verified on Windows (Python 3.11 and 3.14) only; macOS not yet checked |
+| M0 — Project setup | Repo, environment, docs, coding standards | Clean setup works on Mac | Mostly done. Setup verified on Windows (Python 3.11 and 3.14); the macOS check on the MacBook is still to do (P0-16) |
 | M1 — AI foundation | FastAPI, Ollama adapter, cloud adapter, chat endpoint | Local chat passes tests | **Done** (tests use mocks; real-Ollama tests run only when Ollama is available) |
 | M2 — Desktop UI | Tauri + React chat interface | User can chat from desktop | Not started |
 | M3 — Conversation & memory | Sessions, history, explicit memory manager | User can review/delete memory | Backend done (API only). Open: UI, better relevance, cloud-memory decision |
@@ -99,7 +99,7 @@ New work is named by milestone (M-number) and task id from `06-EXECUTION-PLAN.md
 - [ ] Smoke-test every core feature on the second OS (P7-1, P7-8).
 - [ ] Packaging for the second OS.
 - [ ] Review path, shell, keychain and permission differences between the two systems.
-- [x] CI already runs the backend tests on Linux and Windows.
+- [x] CI runs the backend tests on Linux, macOS and Windows (macOS added with D-002; its first run is pending).
 
 ### M8 — Personal release
 - [ ] Installer/package for the primary OS (P7-5).
@@ -117,9 +117,10 @@ New work is named by milestone (M-number) and task id from `06-EXECUTION-PLAN.md
 | ID | Date | Decision | Reason |
 |---|---|---|---|
 | D-001 | 2026-11-23 | Inferred memories are kept, but only as user-approved suggestions. They are never active without approval, extraction is local-only, and suggestions can be turned off. | Gives a companion feel while keeping memory user-owned (PRD principle 5, BR-03, BR-07). |
+| D-002 | 2026-11-24 | macOS is the primary platform: AARYX is used daily on the MacBook, and the first desktop agent targets macOS. Windows (the development laptop) is the second platform: the backend and UI must keep working there, CI tests it on every change, and its desktop agent comes in M7. Anything OS-specific sits behind the common agent interface. | BRD and PRD already say macOS first; local models run well on Apple Silicon; the owner has both machines, so macOS code can be tested on the MacBook while development continues on Windows. |
 | D-008 | 2026-11-24 | Streaming uses Server-Sent Events, not WebSocket. Revisit if two-way real-time traffic is needed (live voice). | Replies only flow server to client; SSE needs no extra protocol and goes through the same Host, token and CORS checks. HLD updated. |
 
-Open decisions (D-002 primary platform, D-003 memories to cloud, D-004 emotion signals, D-005 voice providers, D-006 avatar assets, D-007 memory retention, D-009 default local model, D-010 spend caps) are tracked in `06-EXECUTION-PLAN.md`.
+Open decisions (D-003 memories to cloud, D-004 emotion signals, D-005 voice providers, D-006 avatar assets, D-007 memory retention, D-009 default local model, D-010 spend caps) are tracked in `06-EXECUTION-PLAN.md`.
 
 ## 3. Risk register
 | Risk | Likelihood | Impact | Mitigation |

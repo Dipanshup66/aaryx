@@ -248,6 +248,7 @@ class LLMProvider(ABC):
 
 Rules:
 - Settings load from `backend/.env` or environment variables; every setting has a safe default.
+- `create_app(settings)` keeps the settings it was given on `app.state.settings`; startup (provider router, logging, memory), the memory service and `/health` all use those, never a second copy read from the environment. Only an app built some other way falls back to the cached environment settings.
 - `.env` is local-only and excluded from Git; `.env.example` holds placeholders only.
 - API keys and the API token are secret values: never logged, never returned by the API, never echoed in a validation error.
 - Invalid configuration fails at startup with a clear message (for example a fallback cloud provider without its key, a too-short `API_TOKEN`, a wildcard CORS origin).
@@ -289,9 +290,9 @@ Implemented in `core/security.py` and wired in `main.py`; middleware order is Ho
 - Memory tests for save, retrieve, edit, delete, suggestions, duplicates, contradictions, supersession.
 - Chat-memory integration tests and a user-scenario suite (`tests/test_user_scenarios.py`) that attacks each feature the way a user, a flaky model or a hostile input could.
 - Guard tests: `.env.example` matches the settings; versions match across files; the pinned requirements files match `pyproject.toml`.
-- CI runs ruff, format check and pytest on Linux and Windows.
+- CI runs ruff, format check and pytest on Linux, macOS (primary platform) and Windows.
 - Permission tests proving denied actions do not execute (with Phase 4).
-- Manual smoke test on the primary OS, then the second one (P7-1, P7-8).
+- Manual smoke test on the MacBook (primary OS) first, then the Windows laptop (P0-16, P7-1, P7-8).
 
 ## 9. Definition of done
 

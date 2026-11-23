@@ -24,7 +24,8 @@ jobs:
           # 3.11 is the minimum version declared in pyproject.toml
           - { os: ubuntu-latest, python: "3.11" }
           - { os: ubuntu-latest, python: "3.13" }
-          # development happens on Windows, so keep it covered too
+          # D-002: macOS is the primary platform, Windows is the development machine
+          - { os: macos-latest, python: "3.13" }
           - { os: windows-latest, python: "3.13" }
     defaults:
       run:

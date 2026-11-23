@@ -8,7 +8,7 @@ AARYX is a personal-first AI companion project designed for macOS and Windows. T
 
 **Stage:** Backend working (pre-alpha). The desktop app, voice, avatar and desktop tools are not built yet.  
 **Current release:** none  
-**Target platforms:** macOS and Windows (primary platform still to be decided, see D-002 in `docs/06-EXECUTION-PLAN.md`)
+**Target platforms:** macOS (primary, used daily on a MacBook) and Windows (development machine and second platform, tested in CI). Decision D-002 in `docs/05-ROADMAP-Backlog-and-Risks.md`.
 
 ### What works today (backend)
 

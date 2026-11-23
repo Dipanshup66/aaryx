@@ -20,7 +20,7 @@ All notable changes to AARYX are recorded here, newest first. The format follows
 - Settings `MEMORY_SUGGESTIONS_ENABLED`, `MEMORY_MAX_CONTEXT_ITEMS`, `MEMORY_EXTRACTION_MODEL`.
 - Local API protection: `python -m app` launcher that refuses non-loopback addresses without a token, Host header guard against DNS rebinding, optional API token (`API_TOKEN`), CORS limited to the desktop app (`API_CORS_ORIGINS`, `API_ALLOWED_HOSTS`).
 - Pinned dependencies: `backend/requirements.txt` and `requirements-dev.txt` (exact versions with hashes, for Windows, macOS and Linux, Python 3.11 and newer) and `scripts/update_lock.py` to refresh them. Installs and CI now use them.
-- `docs/SETUP.md`, `docs/06-EXECUTION-PLAN.md`, GitHub Actions CI, `.env.example` covering every setting (kept in sync by a test).
+- `docs/SETUP.md`, `docs/06-EXECUTION-PLAN.md`, GitHub Actions CI (Linux, macOS, Windows), `.env.example` covering every setting (kept in sync by a test).
 - About 1100 automated tests, including a user-scenario suite.
 
 ### Changed
@@ -31,6 +31,7 @@ All notable changes to AARYX are recorded here, newest first. The format follows
 
 ### Fixed
 - `pip install -e ".[dev]"` failed because package discovery picked up the `data/` folder.
+- An app built with its own settings (`create_app(settings)`) ignored them at startup and used the cached environment settings instead, so for example `memory_enabled=False` still created the database and a memory service. Startup, the memory service, provider routing, logging and `/health` now all use the app's own settings.
 - Parallel turns could store the same memory suggestion several times, and a double click could approve one suggestion twice.
 - Plurals, inflections and Devanagari text now match memories ("gardens" finds "garden"); identical memories appear once in a prompt; a runaway model can queue at most 5 suggestions per turn.
 
