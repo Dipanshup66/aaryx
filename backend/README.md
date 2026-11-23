@@ -10,7 +10,7 @@ Install, run, back up and troubleshoot: see [`../docs/SETUP.md`](../docs/SETUP.m
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\Activate.ps1
 pip install -e ".[dev]"
 cp .env.example .env
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+python -m app
 pytest
 ```
 
@@ -49,4 +49,5 @@ tests/           ~1000 tests, no Ollama or internet needed
 - Memory extraction uses the local model only.
 - Passwords, API keys, card and ID numbers are refused as memories; keys are redacted from logs.
 - A failure in memory never breaks a chat reply.
+- The API answers only to localhost host names, can require an `API_TOKEN`, and `python -m app` refuses to listen beyond this computer without one.
 - No desktop automation exists yet. None will be added until the tool permission model is in place (see `../docs/06-EXECUTION-PLAN.md`, Phase 4).

@@ -3,7 +3,7 @@
 **Purpose:** one ordered checklist from today's state to Personal v1. Work top to bottom; tick a box only when its "Done when" is true.
 **Companion docs:** `05-ROADMAP` (milestones M0–M8, risks, release gates, decision log).
 **Size:** S = under half a day, M = 1–3 days, L = about a week or more. These are rough guides, not promises.
-**Last updated:** 2026-11-24 (P0-3..P0-8 done)
+**Last updated:** 2026-11-24 (P0-3..P0-14 done; P0-15 added)
 
 ## Where we are
 
@@ -30,12 +30,13 @@
 - [x] **P0-6 (S)** Fix the literal `\n` at the end of the 11 folder README files. Done: 15 README files had the literal `\n` (not 11); the 5 outdated module READMEs now describe the real code.
 - [x] **P0-7 (S)** Update `.env.example` with every setting (`MEMORY_SUGGESTIONS_ENABLED`, `MEMORY_MAX_CONTEXT_ITEMS`, `MEMORY_CANDIDATE_MIN_CONFIDENCE`, ...). Remove the dead auto-store setting if present. Done: every setting is in `.env.example`; `tests/test_env_example.py` fails if it drifts.
 - [x] **P0-8 (S)** Add CI (GitHub Actions): ruff check, ruff format --check, pytest. *Done when:* a push runs it and it is green. Done: `.github/workflows/ci.yml` (ubuntu py3.11 and py3.13, windows py3.13). Its first run on GitHub is not yet confirmed green.
-- [ ] **P0-9 (M)** Bring the LLD in line with the code: `conversation_id`, `/api/memories`, provider interface, config, repo tree, error format. *Done when:* nothing in the LLD contradicts the code.
-- [ ] **P0-10 (S)** Update the roadmap: statuses on M0–M3, backlog for M7 and M8, map "Phase 3 Step 2.2" naming to M-numbers.
-- [ ] **P0-11 (M)** Local API safety: confirm default bind is `127.0.0.1`, add CORS for the future UI origin, add an optional API token for use beyond loopback. *Done when:* tests cover bind/CORS/token and docs describe them.
-- [ ] **P0-12 (S)** Record decision D-008: chat streaming uses SSE, not the WebSocket the HLD mentions. Update the HLD. *Done when:* HLD and code agree.
-- [ ] **P0-13 (S)** Add `CHANGELOG.md` and a versioning rule (0.x until Personal v1). *Done when:* each release/tag has an entry.
-- [ ] **P0-14 (S)** Document the real `GET /health` response (status `ok`/`degraded`, app, environment, providers) in the LLD instead of the old `{status, app}` example.
+- [x] **P0-9 (M)** Bring the LLD in line with the code: `conversation_id`, `/api/memories`, provider interface, config, repo tree, error format. *Done when:* nothing in the LLD contradicts the code. Done: LLD rewritten to match the code (repo tree, every endpoint and schema, entities, provider interface, config, error formats, security); planned items are marked with task ids.
+- [x] **P0-10 (S)** Update the roadmap: statuses on M0–M3, backlog for M7 and M8, map "Phase 3 Step 2.2" naming to M-numbers. Done: milestone status column, accurate M0 to M3 checklists, M7 and M8 backlog, phase-to-milestone naming map, decision log.
+- [x] **P0-11 (M)** Local API safety: confirm default bind is `127.0.0.1`, add CORS for the future UI origin, add an optional API token for use beyond loopback. *Done when:* tests cover bind/CORS/token and docs describe them. Done: `python -m app` refuses non-loopback binds without a token; Host guard (DNS rebinding); optional API token; CORS limited to the desktop origins; secrets hidden in config errors. Note: `api_host`/`api_port` were never used before this.
+- [x] **P0-12 (S)** Record decision D-008: chat streaming uses SSE, not the WebSocket the HLD mentions. Update the HLD. *Done when:* HLD and code agree. Done: D-008 recorded in the roadmap decision log and HLD.
+- [x] **P0-13 (S)** Add `CHANGELOG.md` and a versioning rule (0.x until Personal v1). *Done when:* each release/tag has an entry. Done: `CHANGELOG.md`, versioning rule, `app.__version__`; `tests/test_project_metadata.py` keeps versions and changelog in sync.
+- [x] **P0-14 (S)** Document the real `GET /health` response (status `ok`/`degraded`, app, environment, providers) in the LLD instead of the old `{status, app}` example. Done: the real `/health` response (ok and degraded) is documented in the LLD.
+- [ ] **P0-15 (S)** Pin dependency versions (a lock file or a constraints file) so a fresh install and CI use the same versions; today they are ranges such as `fastapi>=0.115,<1.0` (found while updating the roadmap, M0). *Done when:* CI and a fresh clone install identical versions and the lock file is refreshed by a documented command.
 
 ## Phase 1 — Finish the memory feature (M3)
 

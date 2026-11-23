@@ -53,6 +53,8 @@ The settings you are most likely to change:
 | `MEMORY_SUGGESTIONS_ENABLED` | `true`: AARYX suggests memories and you approve them. `false`: only "remember that ..." creates memories |
 | `MEMORY_MAX_CONTEXT_ITEMS` | how many approved memories go into each prompt (`0` = none) |
 | `MEMORY_ENABLED` | `false` turns off all history and memory |
+| `API_HOST`, `API_PORT` | where the server listens (default `127.0.0.1:8000`) |
+| `API_TOKEN` | optional password for the API; required to listen beyond this computer (section 5) |
 | `AI_PROVIDER` | `ollama` (local), or `openai`, `anthropic`, `gemini` (cloud; needs the matching `*_API_KEY`) |
 
 ## 4. Prepare the local model (Ollama)
@@ -70,10 +72,10 @@ If that model name is not available in your Ollama version, pick any model from 
 From the `backend/` folder with the virtual environment active:
 
 ```bash
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8000
+python -m app
 ```
 
-Add `--reload` while developing. Keep the host at `127.0.0.1` so only this computer can reach the API.
+Add `--reload` while developing. The address comes from `API_HOST` and `API_PORT` in `.env` (default `127.0.0.1:8000`, reachable only from this computer). `python -m app` refuses to listen on any other address unless `API_TOKEN` is set. Avoid starting `uvicorn` by hand with `--host 0.0.0.0`: that skips this safety check.
 
 Check it works:
 
@@ -106,6 +108,21 @@ Send `"conversation_id": "<id from the first reply>"` to continue the same conve
 4. Delete any memory with `DELETE /api/memories/{id}`.
 
 Passwords, API keys, card numbers and national ID numbers are never stored as memories.
+
+### Protecting the API (optional)
+
+Your memories are personal data, so the API defends itself:
+
+- It answers only to the host names in `API_ALLOWED_HOSTS` (default `localhost`, `127.0.0.1`, `[::1]`). This stops a web page from reaching your local API through DNS rebinding.
+- Browsers may call it only from the desktop app's origins (`API_CORS_ORIGINS`, default `tauri://localhost,http://tauri.localhost`). While developing the UI, add its dev server, for example `API_CORS_ORIGINS=tauri://localhost,http://tauri.localhost,http://localhost:1420`.
+- To require a password on every `/api` call, set a token (at least 16 characters):
+
+  ```bash
+  python -c "import secrets; print(secrets.token_urlsafe(32))"   # prints a good token
+  ```
+
+  Put it in `.env` as `API_TOKEN=...`, restart, and send `Authorization: Bearer <token>` (or `X-API-Key: <token>`) with each request. `/health` and `/docs` stay open.
+- To let another computer reach the API you must set `API_TOKEN`, set `API_HOST` to the address to listen on, and add the host name clients use to `API_ALLOWED_HOSTS`. Never expose it to the public internet.
 
 ## 7. Using a cloud model (optional)
 
@@ -150,7 +167,12 @@ Starting fresh: stop the server and delete the `data/` files; an empty database 
 | Chat fails with a provider error right after you changed the model | the model is probably not pulled: compare `OLLAMA_MODEL` with `ollama list` (exact name), and run `ollama pull <model>` if it is missing. A clearer message for this case is planned (task P1-11) |
 | Chat times out | local models can be slow on CPU: raise `OLLAMA_TIMEOUT` or use a smaller model |
 | Server will not start with a message like "OpenAI configured as fallback provider, but OPENAI_API_KEY is not set" | you enabled a cloud fallback without its `*_API_KEY`: add the key, or set `AI_FALLBACK_ENABLED=false` |
-| `Address already in use` | another program uses the port: pick another with `--port 8001` |
+| `Address already in use` | another program uses the port: set `API_PORT=8001` in `.env` |
+| `python -m app` prints "Refusing to listen on ..." | `API_HOST` is not a loopback address and `API_TOKEN` is empty: use `127.0.0.1`, or set a token |
+| Startup says `API_TOKEN must be at least 16 characters` | generate a longer one (command in "Protecting the API") |
+| Every call returns `401 Unauthorized` | `API_TOKEN` is set: send `Authorization: Bearer <token>` |
+| Every call returns `400 Invalid host` | the request used a host name that is not in `API_ALLOWED_HOSTS` (for example your computer's name instead of `localhost`) |
+| The desktop app or a browser page gets a CORS error | add its origin to `API_CORS_ORIGINS` |
 | My memories disappeared / a new empty database appeared | you started the server from a different folder (the default path is relative). Start it from `backend/`, or set an absolute `MEMORY_DATABASE_URL` |
 | No memory suggestions appear | `MEMORY_SUGGESTIONS_ENABLED` is `false`, or Ollama (the extraction model) is not running. "Remember that ..." works without the extraction model |
 | Tests fail on a fresh checkout | run `pip install -e ".[dev]"` again and make sure you are in `backend/`; report the failing test name |

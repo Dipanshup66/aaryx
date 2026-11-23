@@ -118,7 +118,7 @@ async def api_client(
 
     async with AsyncClient(
         transport=ASGITransport(app=app),
-        base_url="http://test",
+        base_url="http://localhost",
     ) as client:
         yield client, mock_provider, memory_service
 
@@ -324,7 +324,7 @@ async def test_memory_disabled_endpoints() -> None:
     app.dependency_overrides[get_memory_service] = lambda: None
     app.state.memory_service = None
 
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as client:
         res_post = await client.post("/api/conversations", json={"title": "Disabled"})
         assert res_post.status_code == 503
         assert "disabled" in res_post.json()["detail"].lower()

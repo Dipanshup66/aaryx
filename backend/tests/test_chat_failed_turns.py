@@ -100,7 +100,7 @@ async def env(
     app.state.orchestrator = orchestrator
     app.state.memory_service = service
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
             yield c, provider, service
     finally:
         app.dependency_overrides.clear()
@@ -137,7 +137,7 @@ async def _asgi_stream(path: str, body: dict[str, Any]) -> tuple[str, BaseExcept
         "path": path,
         "raw_path": path.encode(),
         "query_string": b"",
-        "headers": [(b"content-type", b"application/json")],
+        "headers": [(b"content-type", b"application/json"), (b"host", b"localhost")],
         "server": ("test", 80),
         "client": ("test", 1),
         "scheme": "http",

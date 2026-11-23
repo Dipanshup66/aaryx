@@ -87,7 +87,7 @@ def client(mock_provider: MockAPIProvider):
     app.state.provider = mock_provider
     app.state.orchestrator = mock_orchestrator
 
-    yield AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    yield AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost")
 
     app.dependency_overrides.clear()
 

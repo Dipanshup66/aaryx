@@ -48,7 +48,7 @@ async def api_client(
     app.dependency_overrides[get_memory_service] = lambda: memory_service
 
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+    async with AsyncClient(transport=transport, base_url="http://localhost") as client:
         yield client, memory_service
 
     app.dependency_overrides.clear()

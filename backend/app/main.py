@@ -4,16 +4,19 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app import __version__
 from app.api.routes_chat import router as chat_router
 from app.api.routes_conversations import router as conversations_router
 from app.api.routes_health import router as health_router
 from app.api.routes_memories import router as memories_router
 from app.api.routes_models import router as models_router
 from app.brain.orchestrator import BrainOrchestrator
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.logging import get_logger, setup_logging
+from app.core.security import ApiTokenMiddleware, HostGuardMiddleware
 from app.memory.database import create_database_engine, get_session_factory, init_db
 from app.memory.exceptions import (
     ConversationNotFoundError,
@@ -90,15 +93,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Shutdown complete")
 
 
-def create_app() -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the central FastAPI application."""
-    settings = get_settings()
+    settings = settings or get_settings()
     app = FastAPI(
         title=f"{settings.app_name} API",
-        version="0.1.0",
+        version=__version__,
         description="AARYX Personal AI Companion API",
         lifespan=lifespan,
     )
+
+    # Middleware order: the last one added is the outermost. A request passes through the
+    # Host check first, then CORS (which answers browser preflights), then the API token.
+    if settings.api_token is not None:
+        app.add_middleware(ApiTokenMiddleware, token=settings.api_token.get_secret_value())
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+            max_age=600,
+        )
+    app.add_middleware(HostGuardMiddleware, allowed_hosts=settings.allowed_hosts)
 
     # Register Provider Exception Handlers
     @app.exception_handler(ProviderConnectionError)

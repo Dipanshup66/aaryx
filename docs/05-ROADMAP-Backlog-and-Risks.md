@@ -1,39 +1,53 @@
 # AARYX — Development Roadmap, Backlog & Risk Register
 
-**Version:** 1.0  
-**Delivery approach:** Incremental milestones; validate each milestone before expanding scope.
+**Version:** 1.1 (statuses updated 2026-11-24)  
+**Delivery approach:** Incremental milestones; validate each milestone before expanding scope.  
+**Task-level plan:** `06-EXECUTION-PLAN.md` breaks each milestone into tracked tasks.
 
 ## 1. Delivery roadmap
 
-| Milestone | Main deliverable | Exit criteria |
+| Milestone | Main deliverable | Exit criteria | Status |
+|---|---|---|---|
+| M0 — Project setup | Repo, environment, docs, coding standards | Clean setup works on Mac | Mostly done. Setup verified on Windows only; dependencies are version ranges, not pinned (P0-15) |
+| M1 — AI foundation | FastAPI, Ollama adapter, cloud adapter, chat endpoint | Local chat passes tests | **Done** (tests use mocks; real-Ollama tests run only when Ollama is available) |
+| M2 — Desktop UI | Tauri + React chat interface | User can chat from desktop | Not started |
+| M3 — Conversation & memory | Sessions, history, explicit memory manager | User can review/delete memory | Backend done (API only). Open: UI, better relevance, cloud-memory decision |
+| M4 — Voice | Push-to-talk STT and TTS | Voice conversation works with text fallback | Not started |
+| M5 — Avatar | Human/Hologram switch and animation states | Both modes switch reliably | Not started |
+| M6 — Safe tools | Tool proposals, permission broker, macOS agent | Approved allowlisted action executes | Not started |
+| M7 — Windows port | Windows agent and packaging | Core features pass Windows smoke tests | Not started (backend already runs and is tested on Windows in CI) |
+| M8 — Personal release | Installer, backup, settings, diagnostics | Fresh install and recovery documented | Not started (setup and backup steps are documented in `SETUP.md`) |
+
+### Naming used in commit messages
+
+Early commits say "Phase 1/2/3". They map to the milestones above:
+
+| Commit wording | Milestone | What it covered |
 |---|---|---|
-| M0 — Project setup | Repo, environment, docs, coding standards | Clean setup works on Mac |
-| M1 — AI foundation | FastAPI, Ollama adapter, cloud adapter, chat endpoint | Local chat passes tests |
-| M2 — Desktop UI | Tauri + React chat interface | User can chat from desktop |
-| M3 — Conversation & memory | Sessions, history, explicit memory manager | User can review/delete memory |
-| M4 — Voice | Push-to-talk STT and TTS | Voice conversation works with text fallback |
-| M5 — Avatar | Human/Hologram switch and animation states | Both modes switch reliably |
-| M6 — Safe tools | Tool proposals, permission broker, macOS agent | Approved allowlisted action executes |
-| M7 — Windows port | Windows agent and packaging | Core features pass Windows smoke tests |
-| M8 — Personal release | Installer, backup, settings, diagnostics | Fresh install and recovery documented |
+| Phase 1 | M0 and M1 | FastAPI skeleton, logging, configuration, health endpoint |
+| Phase 2 | M1 | Provider adapters, factory, fallback router, brain orchestrator |
+| Phase 3.1 | M3 | Persistent conversations and messages |
+| Phase 3.2 | M3 | Long-term memory foundation, CRUD API, explicit parser, local extraction |
+
+New work is named by milestone (M-number) and task id from `06-EXECUTION-PLAN.md`.
 
 ## 2. Initial implementation backlog
 ### M0 — Setup
-- [ ] Create Git repository.
-- [ ] Add README, BRD, PRD, HLD, LLD.
-- [ ] Add `.gitignore` including `.env`, `.venv`, caches, local databases.
-- [ ] Create Python virtual environment.
-- [ ] Pin dependencies and add test tooling.
+- [x] Create Git repository.
+- [x] Add README, BRD, PRD, HLD, LLD.
+- [x] Add `.gitignore` including `.env`, `.venv`, caches, local databases.
+- [x] Create Python virtual environment (documented in `SETUP.md`).
+- [ ] Pin dependencies and add test tooling. Tooling is done (pytest, ruff, CI); versions are still ranges with no lock file (P0-15).
 
 ### M1 — AI foundation
-- [ ] Implement settings loader.
-- [ ] Define common provider interface.
-- [ ] Implement Ollama adapter.
-- [ ] Implement cloud-compatible adapter.
-- [ ] Implement Local/Cloud router.
-- [ ] Add `/health`.
-- [ ] Add `/api/chat`.
-- [ ] Add tests for success, timeout, and missing provider.
+- [x] Implement settings loader.
+- [x] Define common provider interface.
+- [x] Implement Ollama adapter.
+- [x] Implement cloud-compatible adapters (OpenAI, Anthropic, Gemini).
+- [x] Implement Local/Cloud router (retries and consent-based fallback). Choosing local or cloud per request is still open (P1-9).
+- [x] Add `/health`.
+- [x] Add `/api/chat` (and `/api/chat/stream`).
+- [x] Add tests for success, timeout, and missing provider.
 
 ### M2 — Desktop UI
 - [ ] Initialize Tauri + React + TypeScript.
@@ -43,16 +57,16 @@
 - [ ] Add loading, retry, and error states.
 
 ### M3 — Memory
-- [ ] Add local database.
-- [ ] Persist conversations and messages.
-- [ ] Add explicit memory save flow.
-- [ ] Add memory list/edit/delete.
-- [ ] Add retrieval tests.
+- [x] Add local database.
+- [x] Persist conversations and messages.
+- [x] Add explicit memory save flow.
+- [x] Add memory list/edit/delete.
+- [x] Add retrieval tests.
 - [x] Retrieve relevant `active` memories into the system prompt on every chat turn (`/api/chat` and `/api/chat/stream`). Keyword-based and local; core memories (instructions, importance >= 4) are always eligible; capped by `MEMORY_MAX_CONTEXT_ITEMS` (default 8, 0 = off).
 - [x] Run extraction after each completed turn in the background (local model only); inferred memories become `candidate` only (D-001), explicit "remember this" becomes `active`. A memory failure never breaks the chat reply.
 - [x] User-scenario hardening suite (`tests/test_user_scenarios.py`, ~270 cases): remember-phrasing (English + Hinglish), hostile text, chat input abuse, approve/reject misuse, retrieval phrasing, model misbehaviour, failure recovery, concurrency, settings.
-- [ ] Decide whether memories may be sent to a cloud provider (they are part of the prompt, so they are when the cloud model answers). Options: always, ask once, or local-only.
-- [ ] Better relevance than keywords (embeddings / vector search) and avoid loading every active memory per turn once memories grow large.
+- [ ] Decide whether memories may be sent to a cloud provider (they are part of the prompt, so they are when the cloud model answers). Options: always, ask once, or local-only (P1-1).
+- [ ] Better relevance than keywords (embeddings / vector search) and avoid loading every active memory per turn once memories grow large (P1-5, P1-6).
 - [x] Inferred memories can never be created or updated into `active` (D-001); the old confidence-based auto-activation and `MEMORY_AUTO_STORE_MIN_CONFIDENCE` were removed.
 - [x] Approve / reject endpoints for suggestions and the `MEMORY_SUGGESTIONS_ENABLED` setting.
 - [x] Tests: inferred never active, rejected never re-suggested, pending suggestions not duplicated, suggestions off creates no inferred memories (`tests/test_memory_suggestions.py`).
@@ -78,12 +92,34 @@
 - [ ] Implement low-risk read-only actions first.
 - [ ] Add audit events.
 - [ ] Add stop/cancel control.
-- [ ] Block arbitrary shell execution in the MVP.
+- [ ] Block arbitrary shell execution in the MVP (no shell code exists today; a guard test is planned, P4-12).
+
+### M7 — Windows/macOS parity
+- [ ] Desktop agent for the second operating system behind the common action interface.
+- [ ] Smoke-test every core feature on the second OS (P7-1, P7-8).
+- [ ] Packaging for the second OS.
+- [ ] Review path, shell, keychain and permission differences between the two systems.
+- [x] CI already runs the backend tests on Linux and Windows.
+
+### M8 — Personal release
+- [ ] Installer/package for the primary OS (P7-5).
+- [ ] Backup and restore of the database and settings, tested (P7-3). Manual steps are in `SETUP.md`.
+- [ ] Settings page in the UI (P3-5).
+- [ ] Diagnostics page without private content (P7-4).
+- [ ] Fresh-install and recovery documentation verified by someone following it (P7-8).
+- [ ] Privacy and security review, known-limitations document (P7-6, P7-7).
+
+### Cross-cutting (done)
+- [x] Local API protection: loopback-only bind rule, Host guard, optional API token, CORS limited to the desktop app (P0-11).
+- [x] CI, `.env.example` kept in sync with settings, versioned changelog (P0-8, P0-7, P0-13).
 
 ## 2a. Decision log
 | ID | Date | Decision | Reason |
 |---|---|---|---|
 | D-001 | 2026-11-23 | Inferred memories are kept, but only as user-approved suggestions. They are never active without approval, extraction is local-only, and suggestions can be turned off. | Gives a companion feel while keeping memory user-owned (PRD principle 5, BR-03, BR-07). |
+| D-008 | 2026-11-24 | Streaming uses Server-Sent Events, not WebSocket. Revisit if two-way real-time traffic is needed (live voice). | Replies only flow server to client; SSE needs no extra protocol and goes through the same Host, token and CORS checks. HLD updated. |
+
+Open decisions (D-002 primary platform, D-003 memories to cloud, D-004 emotion signals, D-005 voice providers, D-006 avatar assets, D-007 memory retention, D-009 default local model, D-010 spend caps) are tracked in `06-EXECUTION-PLAN.md`.
 
 ## 3. Risk register
 | Risk | Likelihood | Impact | Mitigation |
@@ -95,6 +131,7 @@
 | Unsafe computer actions | Medium | High | Allowlist, preview, approval, audit |
 | Avatar licensing issue | Medium | Medium | Use assets with commercial-use rights |
 | Cross-platform differences | High | Medium | OS abstraction and Windows test milestone |
+| Local API reached by a web page or other computers | Medium | High | Loopback-only bind rule, Host guard against DNS rebinding, optional API token, narrow CORS (done, P0-11) |
 
 ## 4. Release gates
 ### Personal alpha

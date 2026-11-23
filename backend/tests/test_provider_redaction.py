@@ -259,7 +259,9 @@ async def test_health_endpoint_never_exposes_secrets() -> None:
     provider = ADAPTERS["anthropic"](_http(401))
     app.dependency_overrides[get_provider] = lambda: provider
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://localhost"
+        ) as client:
             res = await client.get("/health")
     finally:
         app.dependency_overrides.clear()
@@ -447,7 +449,9 @@ async def test_api_error_handler_logs_and_response_are_sanitized(
         None,
     )
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://localhost"
+        ) as client:
             res = await client.post("/api/chat", json={"message": "hi"})
     finally:
         app.dependency_overrides.clear()

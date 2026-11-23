@@ -231,7 +231,7 @@ async def test_truncated_anthropic_stream_is_not_saved_as_assistant_reply(tmp_pa
     )
     try:
         async with httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://test"
+            transport=httpx.ASGITransport(app=app), base_url="http://localhost"
         ) as client:
             with pytest.raises((ProviderResponseError, RuntimeError)):
                 await client.post("/api/chat/stream", json={"message": "hello there"})

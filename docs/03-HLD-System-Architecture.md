@@ -18,7 +18,7 @@
 │                 AARYX Desktop Client                 │
 │  React UI | Chat | Settings | Memory | Avatar Modes  │
 └──────────────────────────┬───────────────────────────┘
-                           │ localhost API / WebSocket
+                           │ localhost HTTP API (JSON + SSE)
 ┌──────────────────────────▼───────────────────────────┐
 │                 AARYX Application API                │
 │          FastAPI | Auth boundary | Session API       │
@@ -56,6 +56,7 @@
 - Validates requests.
 - Manages chat sessions.
 - Provides health and configuration endpoints.
+- Streams replies with Server-Sent Events (SSE). Decision D-008: SSE instead of WebSocket, because replies only flow server to client, the desktop shell can use the browser `EventSource`/fetch streaming, and it passes through the same Host, token and CORS checks as every other request. Revisit if two-way real-time traffic is needed (for example live voice).
 - Does not directly execute arbitrary shell commands.
 
 ### AI orchestrator
@@ -137,7 +138,9 @@
 - **Diagnostics:** operational metadata; avoid raw conversation/audio by default.
 
 ## 8. Security boundaries
-- Bind local API to `127.0.0.1` by default.
+- Bind local API to `127.0.0.1` by default. Implemented: `python -m app` listens on `API_HOST` (default `127.0.0.1`) and refuses a non-loopback address unless `API_TOKEN` is set.
+- Only answer to known Host names (`API_ALLOWED_HOSTS`), which blocks DNS-rebinding attacks from web pages.
+- Optional shared API token for every `/api` call; CORS limited to the desktop app's origins (no wildcards).
 - Do not expose the local API to the public internet.
 - Store secrets in OS keychain/credential store in the desktop release.
 - Use explicit permission scopes for tools.
