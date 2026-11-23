@@ -8,7 +8,8 @@ Install, run, back up and troubleshoot: see [`../docs/SETUP.md`](../docs/SETUP.m
 
 ```bash
 python -m venv .venv && source .venv/bin/activate    # Windows: .venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
+pip install --require-hashes -r requirements-dev.txt
+pip install --no-deps -e .
 cp .env.example .env
 python -m app
 pytest

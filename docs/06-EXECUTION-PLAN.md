@@ -3,7 +3,7 @@
 **Purpose:** one ordered checklist from today's state to Personal v1. Work top to bottom; tick a box only when its "Done when" is true.
 **Companion docs:** `05-ROADMAP` (milestones M0–M8, risks, release gates, decision log).
 **Size:** S = under half a day, M = 1–3 days, L = about a week or more. These are rough guides, not promises.
-**Last updated:** 2026-11-24 (P0-3..P0-14 done; P0-15 added)
+**Last updated:** 2026-11-24 (P0-3..P0-15 done)
 
 ## Where we are
 
@@ -36,7 +36,7 @@
 - [x] **P0-12 (S)** Record decision D-008: chat streaming uses SSE, not the WebSocket the HLD mentions. Update the HLD. *Done when:* HLD and code agree. Done: D-008 recorded in the roadmap decision log and HLD.
 - [x] **P0-13 (S)** Add `CHANGELOG.md` and a versioning rule (0.x until Personal v1). *Done when:* each release/tag has an entry. Done: `CHANGELOG.md`, versioning rule, `app.__version__`; `tests/test_project_metadata.py` keeps versions and changelog in sync.
 - [x] **P0-14 (S)** Document the real `GET /health` response (status `ok`/`degraded`, app, environment, providers) in the LLD instead of the old `{status, app}` example. Done: the real `/health` response (ok and degraded) is documented in the LLD.
-- [ ] **P0-15 (S)** Pin dependency versions (a lock file or a constraints file) so a fresh install and CI use the same versions; today they are ranges such as `fastapi>=0.115,<1.0` (found while updating the roadmap, M0). *Done when:* CI and a fresh clone install identical versions and the lock file is refreshed by a documented command.
+- [x] **P0-15 (S)** Pin dependency versions (a lock file or a constraints file) so a fresh install and CI use the same versions; today they are ranges such as `fastapi>=0.115,<1.0` (found while updating the roadmap, M0). *Done when:* CI and a fresh clone install identical versions and the lock file is refreshed by a documented command. Done: hashed universal lock files `backend/requirements.txt` and `requirements-dev.txt`, `scripts/update_lock.py`, CI installs from the lock, `tests/test_dependency_lock.py` keeps them consistent with `pyproject.toml`. Verified on Windows by installing only from the lock and running all tests on Python 3.14 and 3.11; Linux is covered by CI on its first run.
 
 ## Phase 1 — Finish the memory feature (M3)
 

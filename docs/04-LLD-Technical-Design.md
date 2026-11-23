@@ -27,15 +27,18 @@ aaryx/
 │   │   ├── emotion/                # not started
 │   │   └── tools/                  # not started
 │   ├── tests/
-│   ├── pyproject.toml              # dependencies and tool config (no requirements.txt)
+│   ├── pyproject.toml              # supported dependency ranges and tool config
+│   ├── requirements.txt            # generated: exact runtime versions with hashes
+│   ├── requirements-dev.txt        # generated: runtime + dev tools
 │   └── .env.example
 ├── frontend/                       # Tauri + React client (not started; replaces `apps/desktop`)
 ├── desktop-agent/                  # common / macos / windows (not started)
-├── infrastructure/  scripts/       # placeholders
+├── infrastructure/                 # placeholder
+├── scripts/update_lock.py          # regenerates the pinned requirements files
 └── docs/
 ```
 
-Differences from LLD 1.0: `frontend/` instead of `apps/desktop/`; `pyproject.toml` instead of `requirements.txt`; the router lives in `providers/router.py` (not `brain/router.py`); there are four provider adapters (`openai.py`, `anthropic.py`, `gemini.py`) instead of one `cloud_openai_compatible.py`; memory routes are in `routes_memories.py`.
+Differences from LLD 1.0: `frontend/` instead of `apps/desktop/`; `pyproject.toml` holds the supported ranges and `requirements*.txt` are generated lock files with exact versions and hashes; the router lives in `providers/router.py` (not `brain/router.py`); there are four provider adapters (`openai.py`, `anthropic.py`, `gemini.py`) instead of one `cloud_openai_compatible.py`; memory routes are in `routes_memories.py`.
 
 ## 2. API contract
 
@@ -285,7 +288,7 @@ Implemented in `core/security.py` and wired in `main.py`; middleware order is Ho
 - API tests for validation, errors, security (Host, token, CORS, bind rule).
 - Memory tests for save, retrieve, edit, delete, suggestions, duplicates, contradictions, supersession.
 - Chat-memory integration tests and a user-scenario suite (`tests/test_user_scenarios.py`) that attacks each feature the way a user, a flaky model or a hostile input could.
-- Guard tests: `.env.example` matches the settings; versions match across files.
+- Guard tests: `.env.example` matches the settings; versions match across files; the pinned requirements files match `pyproject.toml`.
 - CI runs ruff, format check and pytest on Linux and Windows.
 - Permission tests proving denied actions do not execute (with Phase 4).
 - Manual smoke test on the primary OS, then the second one (P7-1, P7-8).

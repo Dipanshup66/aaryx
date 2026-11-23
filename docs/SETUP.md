@@ -21,7 +21,8 @@ git clone https://github.com/Dipanshup66/aaryx.git
 cd aaryx\backend
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -e ".[dev]"
+pip install --require-hashes -r requirements-dev.txt
+pip install --no-deps -e .
 ```
 
 macOS / Linux:
@@ -31,8 +32,11 @@ git clone https://github.com/Dipanshup66/aaryx.git
 cd aaryx/backend
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -e ".[dev]"
+pip install --require-hashes -r requirements-dev.txt
+pip install --no-deps -e .
 ```
+
+The first command installs the exact package versions this project is tested with (pinned, with hashes, so a tampered or different download is refused). The second installs AARYX itself. To run without the test tools use `requirements.txt` instead of `requirements-dev.txt`.
 
 > Always run the backend and the tests from the `backend/` folder. The default database path (`./data/aaryx.db`) is relative to the folder you start the server from.
 
@@ -147,7 +151,19 @@ ruff format --check app tests
 
 `pytest -m integration` runs the few tests that talk to a real local Ollama.
 
-## 9. Back up and restore
+## 9. Update the pinned dependencies
+
+Versions live in `backend/requirements.txt` and `backend/requirements-dev.txt` (generated, do not edit by hand). After you change dependencies in `backend/pyproject.toml`, or when you want newer versions:
+
+```bash
+python -m pip install uv                 # once
+python scripts/update_lock.py            # keep current pins, apply pyproject changes
+python scripts/update_lock.py --upgrade  # move everything to the newest allowed versions
+```
+
+Then reinstall (the two `pip install` commands in section 2), run `pytest`, and commit both files together with the change. `pytest` fails if the files no longer match `pyproject.toml`.
+
+## 10. Back up and restore
 
 Your conversations and memories live in one SQLite database, `backend/data/aaryx.db` by default (see `MEMORY_DATABASE_URL`). The database uses WAL mode, so:
 
@@ -158,11 +174,13 @@ To restore, stop the server, replace those files with your backup, and start it 
 
 Starting fresh: stop the server and delete the `data/` files; an empty database is created on the next start.
 
-## 10. Troubleshooting
+## 11. Troubleshooting
 
 | Symptom | Likely cause and fix |
 |---|---|
-| `pip install -e ".[dev]"` fails | run it inside `backend/`, with Python 3.11+, and update pip: `python -m pip install -U pip` |
+| The `pip install` commands fail | run them inside `backend/`, with Python 3.11+, and update pip first: `python -m pip install -U pip` |
+| pip says `THESE PACKAGES DO NOT MATCH THE HASHES` | the download differs from the pinned one: retry once; if it repeats, do not bypass the check, report it |
+| pip finds no matching file for a package on your system (a very new Python or an unusual platform) | as a fallback only, `pip install -e ".[dev]"` installs the newest versions allowed by `pyproject.toml`; then tell us which package failed |
 | `/health` says `degraded`, chat returns `503 Provider connection failed` | Ollama is not running: start it with `ollama serve` (or open the app), and check `OLLAMA_BASE_URL` |
 | Chat fails with a provider error right after you changed the model | the model is probably not pulled: compare `OLLAMA_MODEL` with `ollama list` (exact name), and run `ollama pull <model>` if it is missing. A clearer message for this case is planned (task P1-11) |
 | Chat times out | local models can be slow on CPU: raise `OLLAMA_TIMEOUT` or use a smaller model |
@@ -175,4 +193,4 @@ Starting fresh: stop the server and delete the `data/` files; an empty database 
 | The desktop app or a browser page gets a CORS error | add its origin to `API_CORS_ORIGINS` |
 | My memories disappeared / a new empty database appeared | you started the server from a different folder (the default path is relative). Start it from `backend/`, or set an absolute `MEMORY_DATABASE_URL` |
 | No memory suggestions appear | `MEMORY_SUGGESTIONS_ENABLED` is `false`, or Ollama (the extraction model) is not running. "Remember that ..." works without the extraction model |
-| Tests fail on a fresh checkout | run `pip install -e ".[dev]"` again and make sure you are in `backend/`; report the failing test name |
+| Tests fail on a fresh checkout | reinstall with the two `pip install` commands from section 2, make sure you are in `backend/`, and report the failing test name |

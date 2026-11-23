@@ -19,11 +19,13 @@ All notable changes to AARYX are recorded here, newest first. The format follows
 - "Remember this" requests are recognised in English and Hinglish ("yaad rakho ki ...", "dhyan rakho", "mat bhoolna", "note kar lo").
 - Settings `MEMORY_SUGGESTIONS_ENABLED`, `MEMORY_MAX_CONTEXT_ITEMS`, `MEMORY_EXTRACTION_MODEL`.
 - Local API protection: `python -m app` launcher that refuses non-loopback addresses without a token, Host header guard against DNS rebinding, optional API token (`API_TOKEN`), CORS limited to the desktop app (`API_CORS_ORIGINS`, `API_ALLOWED_HOSTS`).
+- Pinned dependencies: `backend/requirements.txt` and `requirements-dev.txt` (exact versions with hashes, for Windows, macOS and Linux, Python 3.11 and newer) and `scripts/update_lock.py` to refresh them. Installs and CI now use them.
 - `docs/SETUP.md`, `docs/06-EXECUTION-PLAN.md`, GitHub Actions CI, `.env.example` covering every setting (kept in sync by a test).
 - About 1100 automated tests, including a user-scenario suite.
 
 ### Changed
 - Inferred memories are never active on their own; the confidence-based auto-activation and `MEMORY_AUTO_STORE_MIN_CONFIDENCE` were removed.
+- Install with `pip install --require-hashes -r requirements-dev.txt` then `pip install --no-deps -e .` (see `docs/SETUP.md`).
 - Run the server with `python -m app` (it honours `API_HOST` and `API_PORT`). Settings now reject a rejected value in their error messages instead of echoing it.
 - LLD rewritten to match the code; READMEs describe what exists today.
 

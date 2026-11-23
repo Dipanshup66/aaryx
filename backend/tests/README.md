@@ -1,6 +1,6 @@
 # tests
 
-Run from the `backend/` folder after `pip install -e ".[dev]"`:
+Run from the `backend/` folder after installing the pinned dependencies (see `docs/SETUP.md`):
 
 ```bash
 pytest                      # all tests (needs no Ollama and no internet)
