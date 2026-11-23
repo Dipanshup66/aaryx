@@ -39,8 +39,12 @@ logger = get_logger("main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Manage application startup, provider initialization, memory setup, and graceful shutdown."""
-    settings = get_settings()
+    """Manage application startup, provider initialization, memory setup, and graceful shutdown.
+
+    Uses the settings the app was created with (``create_app``); only an app built some other
+    way falls back to the cached environment settings.
+    """
+    settings = getattr(app.state, "settings", None) or get_settings()
     setup_logging(settings.log_level)
     logger.info(
         "Initializing %s in %s mode (provider=%s, fallback_enabled=%s, memory_enabled=%s)",
@@ -77,6 +81,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         memory_service = MemoryService(
             session_factory=session_factory,
             max_history_messages=settings.memory_max_history_messages,
+            settings=settings,
         )
         logger.info("Persistent conversation memory successfully initialized")
 
@@ -102,6 +107,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         description="AARYX Personal AI Companion API",
         lifespan=lifespan,
     )
+    app.state.settings = settings
 
     # Middleware order: the last one added is the outermost. A request passes through the
     # Host check first, then CORS (which answers browser preflights), then the API token.
