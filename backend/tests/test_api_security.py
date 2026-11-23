@@ -1,6 +1,7 @@
 """Local API protection: Host guard (DNS rebinding), optional API token, CORS, bind rule."""
 
 import json
+import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -11,12 +12,14 @@ from app import __main__ as launcher
 from app.brain.orchestrator import BrainOrchestrator
 from app.core.config import Settings
 from app.core.security import (
+    LAUNCH_HOST_ENV,
     UnsafeBindError,
+    check_launch_bind,
     is_loopback_host,
     parse_host_header,
     validate_bind,
 )
-from app.main import create_app
+from app.main import create_app, lifespan
 from app.providers.base import (
     ChatRequest,
     ChatResponse,
@@ -508,3 +511,109 @@ def test_allowed_hosts_are_lowercased() -> None:
 def test_bad_ports_are_refused(port: int) -> None:
     with pytest.raises(ValueError):
         Settings(_env_file=None, api_port=port)
+
+
+# ============================================================== reload workers (launch bind)
+
+
+def test_check_launch_bind_does_nothing_when_not_started_by_the_launcher() -> None:
+    assert LAUNCH_HOST_ENV not in os.environ
+
+    check_launch_bind(has_api_token=False)  # e.g. tests, or uvicorn started by hand
+
+
+@pytest.mark.parametrize("host", ["127.0.0.1", "localhost", "::1"])
+def test_loopback_launch_needs_no_token(monkeypatch, host: str) -> None:
+    monkeypatch.setenv(LAUNCH_HOST_ENV, host)
+
+    check_launch_bind(has_api_token=False)
+
+
+@pytest.mark.parametrize("host", ["0.0.0.0", "::", "192.168.1.5"])
+def test_external_launch_without_token_is_refused_with_token_it_is_allowed(
+    monkeypatch, host: str
+) -> None:
+    monkeypatch.setenv(LAUNCH_HOST_ENV, host)
+
+    with pytest.raises(UnsafeBindError, match="API_TOKEN"):
+        check_launch_bind(has_api_token=False)
+    check_launch_bind(has_api_token=True)
+
+
+def test_empty_launch_host_is_treated_as_not_set(monkeypatch) -> None:
+    monkeypatch.setenv(LAUNCH_HOST_ENV, "")
+
+    check_launch_bind(has_api_token=False)
+
+
+def test_launcher_records_the_address_it_bound(monkeypatch, runs) -> None:
+    _use_settings(monkeypatch, api_host="0.0.0.0", api_token=TOKEN)
+
+    assert launcher.main([]) == 0
+    assert os.environ[LAUNCH_HOST_ENV] == "0.0.0.0"
+
+
+def test_launcher_records_loopback_by_default(monkeypatch, runs) -> None:
+    _use_settings(monkeypatch)
+
+    launcher.main([])
+
+    assert os.environ[LAUNCH_HOST_ENV] == "127.0.0.1"
+
+
+def test_a_refused_launch_records_nothing_and_starts_nothing(monkeypatch, runs) -> None:
+    _use_settings(monkeypatch, api_host="0.0.0.0")
+
+    assert launcher.main([]) == 2
+    assert LAUNCH_HOST_ENV not in os.environ and runs == []
+
+
+async def test_worker_refuses_to_start_on_an_external_socket_without_a_token(monkeypatch) -> None:
+    monkeypatch.setenv(LAUNCH_HOST_ENV, "0.0.0.0")
+    app = create_app(Settings(_env_file=None, memory_enabled=False))  # token was removed
+
+    with pytest.raises(UnsafeBindError, match="API_TOKEN"):
+        async with lifespan(app):
+            pytest.fail("the worker must not start serving")
+
+    assert not hasattr(app.state, "provider"), "nothing may be started before the check"
+
+
+async def test_worker_starts_on_an_external_socket_when_the_token_is_still_set(monkeypatch) -> None:
+    monkeypatch.setenv(LAUNCH_HOST_ENV, "0.0.0.0")
+    app = create_app(Settings(_env_file=None, memory_enabled=False, api_token=TOKEN))
+
+    async with lifespan(app):
+        assert app.state.provider is not None
+
+
+async def test_worker_uses_the_launch_address_not_the_current_api_host(monkeypatch) -> None:
+    # The launcher's socket is the real exposure. API_HOST changed in .env afterwards is irrelevant.
+    monkeypatch.setenv(LAUNCH_HOST_ENV, "0.0.0.0")
+    app = create_app(Settings(_env_file=None, memory_enabled=False, api_host="127.0.0.1"))
+
+    with pytest.raises(UnsafeBindError):
+        async with lifespan(app):
+            pass
+
+    monkeypatch.setenv(LAUNCH_HOST_ENV, "127.0.0.1")
+    exposed_in_settings_only = create_app(
+        Settings(_env_file=None, memory_enabled=False, api_host="0.0.0.0")
+    )
+    async with lifespan(exposed_in_settings_only):  # the socket stays on loopback
+        pass
+
+
+async def test_reload_sequence_token_removed_after_launch(monkeypatch, runs) -> None:
+    """Launch exposed with a token, then restart the worker after the token left .env."""
+    _use_settings(monkeypatch, api_host="0.0.0.0", api_token=TOKEN)
+    assert launcher.main(["--reload"]) == 0 and runs[0]["reload"] is True
+
+    first_worker = create_app(Settings(_env_file=None, memory_enabled=False, api_token=TOKEN))
+    async with lifespan(first_worker):
+        pass
+
+    second_worker = create_app(Settings(_env_file=None, memory_enabled=False))
+    with pytest.raises(UnsafeBindError):
+        async with lifespan(second_worker):
+            pass

@@ -5,13 +5,14 @@ and refuses to listen beyond this computer unless ``API_TOKEN`` is set.
 """
 
 import argparse
+import os
 import sys
 from collections.abc import Sequence
 
 import uvicorn
 
 from app.core.config import get_settings
-from app.core.security import UnsafeBindError, is_loopback_host, validate_bind
+from app.core.security import LAUNCH_HOST_ENV, UnsafeBindError, is_loopback_host, validate_bind
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -36,6 +37,11 @@ def main(argv: Sequence[str] | None = None) -> int:
             "API_ALLOWED_HOSTS.",
             file=sys.stderr,
         )
+
+    # `--reload` keeps this socket open but starts each new worker with freshly read settings.
+    # Every worker checks this recorded address before it serves (see check_launch_bind), so
+    # removing API_TOKEN later cannot leave an unauthenticated socket open.
+    os.environ[LAUNCH_HOST_ENV] = settings.api_host
 
     uvicorn.run("app.main:app", host=settings.api_host, port=settings.api_port, reload=args.reload)
     return 0

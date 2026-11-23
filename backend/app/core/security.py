@@ -14,6 +14,7 @@ Both middlewares are plain ASGI classes so they never buffer streaming (SSE) res
 import hmac
 import ipaddress
 import json
+import os
 import re
 from collections.abc import Iterable
 
@@ -24,6 +25,11 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 OPEN_PATHS = frozenset({"/health", "/docs", "/redoc", "/openapi.json", "/docs/oauth2-redirect"})
 
 _HOST_HEADER_RE = re.compile(r"^(?P<host>\[[0-9a-f:.]+\]|[a-z0-9._-]+)(?::(?P<port>\d{1,5}))?$")
+
+
+# `python -m app` records the address it bound here. A reload worker inherits the socket opened
+# by the launcher but re-reads the settings, so it must check this value, not its own settings.
+LAUNCH_HOST_ENV = "AARYX_LAUNCH_HOST"
 
 
 class UnsafeBindError(ValueError):
@@ -50,6 +56,20 @@ def validate_bind(host: str, has_api_token: bool) -> None:
         "AARYX holds personal data. Set API_TOKEN (at least 16 characters) in backend/.env, or "
         "use API_HOST=127.0.0.1."
     )
+
+
+def check_launch_bind(has_api_token: bool) -> None:
+    """Refuse to serve on a socket the launcher bound beyond loopback when no token is set.
+
+    With ``python -m app --reload`` the launcher validates the bind once and keeps the socket
+    open, while every new worker re-reads ``.env``. If ``API_TOKEN`` was removed meanwhile, the
+    worker would serve the external socket without authentication. Each worker therefore
+    repeats the check against the address recorded at launch (not ``API_HOST``, which may have
+    changed since). Does nothing when the process was not started by ``python -m app``.
+    """
+    launch_host = os.environ.get(LAUNCH_HOST_ENV)
+    if launch_host:
+        validate_bind(launch_host, has_api_token)
 
 
 def parse_host_header(value: str) -> str | None:
@@ -155,10 +175,12 @@ class ApiTokenMiddleware:
 
 
 __all__ = [
+    "LAUNCH_HOST_ENV",
     "OPEN_PATHS",
     "ApiTokenMiddleware",
     "HostGuardMiddleware",
     "UnsafeBindError",
+    "check_launch_bind",
     "is_loopback_host",
     "parse_host_header",
     "validate_bind",

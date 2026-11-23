@@ -16,7 +16,7 @@ from app.api.routes_models import router as models_router
 from app.brain.orchestrator import BrainOrchestrator
 from app.core.config import Settings, get_settings
 from app.core.logging import get_logger, setup_logging
-from app.core.security import ApiTokenMiddleware, HostGuardMiddleware
+from app.core.security import ApiTokenMiddleware, HostGuardMiddleware, check_launch_bind
 from app.memory.database import create_database_engine, get_session_factory, init_db
 from app.memory.exceptions import (
     ConversationNotFoundError,
@@ -45,6 +45,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     way falls back to the cached environment settings.
     """
     settings = getattr(app.state, "settings", None) or get_settings()
+    # Before anything starts: a reload worker must not serve an external socket without a token.
+    check_launch_bind(settings.api_token is not None)
     setup_logging(settings.log_level)
     logger.info(
         "Initializing %s in %s mode (provider=%s, fallback_enabled=%s, memory_enabled=%s)",
