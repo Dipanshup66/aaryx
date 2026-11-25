@@ -3,7 +3,7 @@
 **Purpose:** one ordered checklist from today's state to Personal v1. Work top to bottom; tick a box only when its "Done when" is true.
 **Companion docs:** `05-ROADMAP` (milestones M0–M8, risks, release gates, decision log).
 **Size:** S = under half a day, M = 1–3 days, L = about a week or more. These are rough guides, not promises.
-**Last updated:** 2026-11-24 (requirements traceability check added)
+**Last updated:** 2026-11-24 (P0-2..P0-15 done; P0-16 added)
 
 ## Where we are
 
@@ -23,19 +23,21 @@
 ## Phase 0 — Housekeeping (do first, small, unblocks everything)
 
 - [ ] **P0-1 (S)** Commit all current work in logical commits (providers, memory, chat integration, tests, docs). *Done when:* `git status` is clean and `git log` shows the history.
-- [ ] **P0-2 (S)** Decide the primary development platform (docs say macOS first, work happens on Windows). Record as decision D-002. *Done when:* roadmap/PRD/README agree on it.
-- [ ] **P0-3 (S)** Fix `pip install -e backend[dev]` (set packages to `app*` in `pyproject.toml`). *Done when:* a fresh venv installs and `pytest` runs from the documented steps.
-- [ ] **P0-4 (S)** Write `docs/SETUP.md`: install, `.env`, run server, run tests, Ollama setup, recovery. *Done when:* a fresh machine follows it without help (PRD acceptance #7).
-- [ ] **P0-5 (S)** Update root `README.md` and `backend/README.md` (status, how to run). Remove the "not yet implemented" text.
-- [ ] **P0-6 (S)** Fix the literal `\n` at the end of the 11 folder README files.
-- [ ] **P0-7 (S)** Update `.env.example` with every setting (`MEMORY_SUGGESTIONS_ENABLED`, `MEMORY_MAX_CONTEXT_ITEMS`, `MEMORY_CANDIDATE_MIN_CONFIDENCE`, ...). Remove the dead auto-store setting if present.
-- [ ] **P0-8 (S)** Add CI (GitHub Actions): ruff check, ruff format --check, pytest. *Done when:* a push runs it and it is green.
-- [ ] **P0-9 (M)** Bring the LLD in line with the code: `conversation_id`, `/api/memories`, provider interface, config, repo tree, error format. *Done when:* nothing in the LLD contradicts the code.
-- [ ] **P0-10 (S)** Update the roadmap: statuses on M0–M3, backlog for M7 and M8, map "Phase 3 Step 2.2" naming to M-numbers.
-- [ ] **P0-11 (M)** Local API safety: confirm default bind is `127.0.0.1`, add CORS for the future UI origin, add an optional API token for use beyond loopback. *Done when:* tests cover bind/CORS/token and docs describe them.
-- [ ] **P0-12 (S)** Record decision D-008: chat streaming uses SSE, not the WebSocket the HLD mentions. Update the HLD. *Done when:* HLD and code agree.
-- [ ] **P0-13 (S)** Add `CHANGELOG.md` and a versioning rule (0.x until Personal v1). *Done when:* each release/tag has an entry.
-- [ ] **P0-14 (S)** Document the real `GET /health` response (status `ok`/`degraded`, app, environment, providers) in the LLD instead of the old `{status, app}` example.
+- [x] **P0-2 (S)** Decide the primary development platform (docs say macOS first, work happens on Windows). Record as decision D-002. *Done when:* roadmap/PRD/README agree on it. Done: D-002 = macOS primary, Windows development machine and second platform (see the roadmap decision log). CI now also runs on macOS.
+- [x] **P0-3 (S)** Fix `pip install -e backend[dev]` (set packages to `app*` in `pyproject.toml`). *Done when:* a fresh venv installs and `pytest` runs from the documented steps. Done: `[build-system]` and `packages.find include = ["app*"]` added; verified in a fresh venv.
+- [x] **P0-4 (S)** Write `docs/SETUP.md`: install, `.env`, run server, run tests, Ollama setup, recovery. *Done when:* a fresh machine follows it without help (PRD acceptance #7). Done: `docs/SETUP.md`; the run commands were executed against the real server.
+- [x] **P0-5 (S)** Update root `README.md` and `backend/README.md` (status, how to run). Remove the "not yet implemented" text. Done: root and backend READMEs rewritten.
+- [x] **P0-6 (S)** Fix the literal `\n` at the end of the 11 folder README files. Done: 15 README files had the literal `\n` (not 11); the 5 outdated module READMEs now describe the real code.
+- [x] **P0-7 (S)** Update `.env.example` with every setting (`MEMORY_SUGGESTIONS_ENABLED`, `MEMORY_MAX_CONTEXT_ITEMS`, `MEMORY_CANDIDATE_MIN_CONFIDENCE`, ...). Remove the dead auto-store setting if present. Done: every setting is in `.env.example`; `tests/test_env_example.py` fails if it drifts.
+- [x] **P0-8 (S)** Add CI (GitHub Actions): ruff check, ruff format --check, pytest. *Done when:* a push runs it and it is green. Done: `.github/workflows/ci.yml` (ubuntu py3.11 and py3.13, windows py3.13). Its first run on GitHub is not yet confirmed green.
+- [x] **P0-9 (M)** Bring the LLD in line with the code: `conversation_id`, `/api/memories`, provider interface, config, repo tree, error format. *Done when:* nothing in the LLD contradicts the code. Done: LLD rewritten to match the code (repo tree, every endpoint and schema, entities, provider interface, config, error formats, security); planned items are marked with task ids.
+- [x] **P0-10 (S)** Update the roadmap: statuses on M0–M3, backlog for M7 and M8, map "Phase 3 Step 2.2" naming to M-numbers. Done: milestone status column, accurate M0 to M3 checklists, M7 and M8 backlog, phase-to-milestone naming map, decision log.
+- [x] **P0-11 (M)** Local API safety: confirm default bind is `127.0.0.1`, add CORS for the future UI origin, add an optional API token for use beyond loopback. *Done when:* tests cover bind/CORS/token and docs describe them. Done: `python -m app` refuses non-loopback binds without a token; Host guard (DNS rebinding); optional API token; CORS limited to the desktop origins; secrets hidden in config errors. Note: `api_host`/`api_port` were never used before this. `--reload` workers re-check the launch-time bind address.
+- [x] **P0-12 (S)** Record decision D-008: chat streaming uses SSE, not the WebSocket the HLD mentions. Update the HLD. *Done when:* HLD and code agree. Done: D-008 recorded in the roadmap decision log and HLD.
+- [x] **P0-13 (S)** Add `CHANGELOG.md` and a versioning rule (0.x until Personal v1). *Done when:* each release/tag has an entry. Done: `CHANGELOG.md`, versioning rule, `app.__version__`; `tests/test_project_metadata.py` keeps versions and changelog in sync.
+- [x] **P0-14 (S)** Document the real `GET /health` response (status `ok`/`degraded`, app, environment, providers) in the LLD instead of the old `{status, app}` example. Done: the real `/health` response (ok and degraded) is documented in the LLD.
+- [x] **P0-15 (S)** Pin dependency versions (a lock file or a constraints file) so a fresh install and CI use the same versions; today they are ranges such as `fastapi>=0.115,<1.0` (found while updating the roadmap, M0). *Done when:* CI and a fresh clone install identical versions and the lock file is refreshed by a documented command. Done: hashed universal lock files `backend/requirements.txt` and `requirements-dev.txt`, `scripts/update_lock.py`, CI installs from the lock, `tests/test_dependency_lock.py` keeps them consistent with `pyproject.toml`. Verified on Windows by installing only from the lock and running all tests on Python 3.14 and 3.11; Linux is covered by CI on its first run.
+- [ ] **P0-16 (S)** Verify everything on the MacBook, the primary platform: from a fresh clone follow `docs/SETUP.md` (install the pinned dependencies, run `pytest`, run `python -m app`, chat once with Ollama), write down what failed, and fix macOS-only problems. *Done when:* the steps work on the MacBook with no undocumented workaround; this closes the M0 exit criterion "clean setup works on Mac".
 
 ## Phase 1 — Finish the memory feature (M3)
 
@@ -52,8 +54,8 @@
 
 - [ ] **P1-9 (M)** Per-request routing: `/api/chat` accepts `mode` (`local`/`cloud`), optional `provider` and `model`; the router honours it; an unknown or unavailable choice returns a clear 4xx; the default comes from settings. Today the provider is fixed at startup and only `model` can be overridden. *Done when:* tests cover local, cloud, cloud-unavailable, unknown provider, and fallback consent.
 - [ ] **P1-10 (S)** Cloud credentials missing: report cloud mode as disabled with a reason (`GET /api/providers` lists each provider: available, mode, reason) and keep local usable, instead of only failing at startup. *Done when:* the UI can grey out Cloud and explain why.
-- [ ] **P1-11 (S)** Actionable provider errors: Ollama not running returns a setup hint; model missing returns the exact model name and the `ollama pull <model>` command. *Done when:* tests assert both payloads (PRD section 8).
-- [ ] **P1-12 (S)** Measure latency: add `latency_ms` to chat responses and logs (LLD provider response). Nothing measures it today. *Done when:* every reply and stream end reports it.
+- [x] **P1-11 (S)** Actionable provider errors: Ollama not running returns a setup hint; model missing returns the exact model name and the `ollama pull <model>` command. *Done when:* tests assert both payloads (PRD section 8). Done: `code`, `model` and `hint` on every provider error (API responses and a final SSE error event); the Ollama adapter names the failing model; hints are built from fixed text and a validated model id; 55 tests including the real Ollama adapter behind the real API, plus a 57-test user-scenario suite (`tests/test_user_scenarios_p1.py`: every failure kind in chat and stream, fallback and retries through the real router, memory on, parallel requests, token auth, hostile upstream bodies and model names). That suite found a real bug, fixed: a wrong `OLLAMA_BASE_URL` (a 404 from a server that is not Ollama) was reported as a missing model and told the user to `ollama pull`; it is now `endpoint_not_found` and points at the address.
+- [x] **P1-12 (S)** Measure latency: add `latency_ms` to chat responses and logs (LLD provider response). Nothing measures it today. *Done when:* every reply and stream end reports it. Done: `latency_ms` on `/api/chat` and on the last chunk of `/api/chat/stream`, measured around the provider call so retries and fallback are included, logged without message content; 18 tests. Time to the first token is not measured yet (useful for P1-13).
 - [ ] **P1-13 (M)** Benchmark several small local models on the dev machine (speed, memory, Hinglish quality); record the baseline in `docs/` and choose the default model. *Done when:* a repeatable script and a written result exist.
 - [ ] **P1-14 (M)** Usage tracking and spend caps: aggregate stored `token_usage` per provider/model/day, `GET /api/usage`, configurable daily/monthly cap per cloud provider; at the cap, route to local or refuse with an explanation. *Done when:* tests prove the cap stops cloud calls.
 
@@ -263,7 +265,7 @@ Connect with the user, understand what they say, complete the tasks they ask for
 
 | ID | Question | Needed by |
 |---|---|---|
-| D-002 | Primary dev/target platform: macOS or Windows first? | P0-2 |
+| D-002 | **Decided 2026-11-24: macOS is primary**; Windows is the development machine and second platform, kept green in CI | P0-2 (done), P0-16 |
 | D-003 | May memories go to a cloud model? | P1-1 |
 | D-004 | Emotion signals: what is read, what is stored, defaults | P2-1 |
 | D-005 | Voice providers, local or not | P5-1 |

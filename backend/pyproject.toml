@@ -1,8 +1,18 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+# Only the application package is shipped; `data/` (local SQLite files) and `tests/` are not.
+include = ["app*"]
+
 [project]
 name = "aaryx-backend"
 version = "0.1.0"
 description = "Backend for the AARYX personal AI companion"
 requires-python = ">=3.11"
+# Ranges describe what AARYX supports. The exact versions used for installs and CI are pinned
+# in requirements.txt / requirements-dev.txt; refresh them with scripts/update_lock.py.
 dependencies = [
   "fastapi>=0.115,<1.0",
   "uvicorn[standard]>=0.30,<1.0",

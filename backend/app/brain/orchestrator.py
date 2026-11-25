@@ -1,6 +1,7 @@
 """AI Brain orchestrator coordinating context assembly, system persona, and LLM providers."""
 
 import re
+import time
 from collections.abc import AsyncIterator, Sequence
 
 from app.brain.prompts import format_memory_context, get_system_prompt
@@ -19,6 +20,11 @@ _THINKING_TAG_REGEX = re.compile(
     r"<(?:think|thought)>[\s\S]*?</(?:think|thought)>", flags=re.IGNORECASE
 )
 _UNCLOSED_THINKING_REGEX = re.compile(r"<(?:think|thought)>[\s\S]*?$", flags=re.IGNORECASE)
+
+
+def _elapsed_ms(started: float) -> int:
+    """Whole milliseconds since ``started`` (a ``time.perf_counter()`` reading)."""
+    return max(0, round((time.perf_counter() - started) * 1000))
 
 
 def sanitize_reply_content(content: str) -> str:
@@ -214,7 +220,15 @@ class BrainOrchestrator:
             request.model or "default",
         )
 
+        started = time.perf_counter()
         response = await self.provider.generate(chat_request)
+        latency_ms = _elapsed_ms(started)
+        logger.info(
+            "Reply ready (provider=%s, model=%s, latency_ms=%d)",
+            response.provider or "unknown",
+            response.model,
+            latency_ms,
+        )
 
         # Sanitize reply content to remove any embedded reasoning tags
         clean_reply = sanitize_reply_content(response.content)
@@ -227,6 +241,7 @@ class BrainOrchestrator:
             usage=response.usage,
             thinking=None,
             provider=response.provider,
+            latency_ms=latency_ms,
         )
 
     async def process_stream(
@@ -258,6 +273,7 @@ class BrainOrchestrator:
         thinking_indicator_emitted = False
         tag_filter = ThinkingStreamFilter()
         last_chunk: ChatStreamChunk | None = None
+        started = time.perf_counter()
 
         def indicator(source: ChatStreamChunk) -> BrainStreamChunk:
             return BrainStreamChunk(
@@ -299,6 +315,7 @@ class BrainOrchestrator:
                 usage=chunk.usage,
                 thinking=None,
                 provider=chunk.provider,
+                latency_ms=_elapsed_ms(started) if chunk.finish_reason else None,
             )
 
         # Stream ended without a finish signal: release text that was held back.
@@ -311,4 +328,5 @@ class BrainOrchestrator:
                 usage=None,
                 thinking=None,
                 provider=last_chunk.provider,
+                latency_ms=_elapsed_ms(started),
             )

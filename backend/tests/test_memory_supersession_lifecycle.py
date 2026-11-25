@@ -387,7 +387,9 @@ async def test_hard_delete_endpoint_relinks_and_tombstones(env) -> None:
     app.dependency_overrides[get_memory_service] = lambda: svc
     app.state.memory_service = svc
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://localhost"
+        ) as client:
             res = await client.delete(f"/api/memories/{b.id}", params={"hard": "true"})
             assert res.status_code == 200 and res.json()["hard"] is True
             relinked = (await client.get(f"/api/memories/{a.id}")).json()

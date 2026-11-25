@@ -115,7 +115,7 @@ async def env(
     app.state.orchestrator = orchestrator
     app.state.memory_service = service
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as c:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost") as c:
             yield c, provider, service, extraction
     finally:
         app.dependency_overrides.clear()

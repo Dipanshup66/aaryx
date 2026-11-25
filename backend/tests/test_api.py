@@ -87,7 +87,7 @@ def client(mock_provider: MockAPIProvider):
     app.state.provider = mock_provider
     app.state.orchestrator = mock_orchestrator
 
-    yield AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+    yield AsyncClient(transport=ASGITransport(app=app), base_url="http://localhost")
 
     app.dependency_overrides.clear()
 
@@ -210,15 +210,15 @@ async def test_models_endpoint(client: AsyncClient):
 
 
 @pytest.mark.asyncio
-async def test_lifespan_lifecycle(tmp_path, monkeypatch):
+async def test_lifespan_lifecycle(tmp_path):
     """Verify application startup and shutdown lifecycle cleans up provider and memory."""
-    from app.core.config import get_settings
+    from app.core.config import Settings
+    from app.main import create_app
 
     test_db = tmp_path / "lifespan_test.db"
-    monkeypatch.setenv("MEMORY_DATABASE_URL", f"sqlite+aiosqlite:///{test_db}")
-    get_settings.cache_clear()
-
-    test_application = app
+    test_application = create_app(
+        Settings(_env_file=None, memory_database_url=f"sqlite+aiosqlite:///{test_db}")
+    )
     async with lifespan(test_application):
         assert hasattr(test_application.state, "provider")
         assert hasattr(test_application.state, "orchestrator")
@@ -231,4 +231,4 @@ async def test_lifespan_lifecycle(tmp_path, monkeypatch):
 
     # Verify provider client is closed after shutdown
     assert test_application.state.provider._client.is_closed
-    get_settings.cache_clear()
+    assert test_db.exists()

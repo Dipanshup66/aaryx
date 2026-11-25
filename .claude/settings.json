@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "attribution": {
+    "commit": "",
+    "pr": ""
+  },
+  "permissions": {
+    "deny": [
+      "Read(.env)",
+      "Read(.env.local)",
+      "Read(.env.development)",
+      "Read(.env.production)",
+      "Read(.env.staging)",
+      "Read(.env.test)",
+      "Read(.env.*.local)",
+      "Read(.envrc)",
+      "Read(**/data/**)",
+      "Read(*.db)",
+      "Read(*.db-wal)",
+      "Read(*.db-shm)",
+      "Read(*.sqlite)",
+      "Read(*.sqlite3)",
+      "Read(*.pem)",
+      "Read(*.key)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "bash",
+            "timeout": 10,
+            "onFailure": "block",
+            "command": "for p in python3 python py; do if command -v \"$p\" >/dev/null 2>&1 && \"$p\" -c 'import sys; sys.exit(0 if sys.version_info >= (3, 11) else 1)' >/dev/null 2>&1; then \"$p\" \"$CLAUDE_PROJECT_DIR/scripts/claude_pretool_guard.py\"; rc=$?; if [ \"$rc\" -eq 0 ]; then exit 0; fi; if [ \"$rc\" -ne 2 ]; then echo \"AARYX guard crashed (exit $rc); command blocked.\" >&2; fi; exit 2; fi; done; echo 'AARYX guard: Python 3.11+ not found (tried python3, python, py); command blocked.' >&2; exit 2"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -33,6 +33,18 @@ from app.providers.base import (
 logger = get_logger("providers.ollama")
 
 
+def _blamed_model(status_code: int, body: str, model: str) -> str | None:
+    """The model to report for a failed request, or None if the failure is not about the model.
+
+    Ollama answers 404 both for an unknown model ("model 'x' not found") and for an unknown
+    route (a wrong base URL, or a server that is not Ollama). Only the first should be reported
+    as a missing model, so a 404 whose body does not mention a model carries no model name.
+    """
+    if status_code == 404 and "model" not in body.lower():
+        return None
+    return model
+
+
 class OllamaProvider(LLMProvider):
     """Local LLM provider connecting to Ollama daemon."""
 
@@ -128,6 +140,7 @@ class OllamaProvider(LLMProvider):
                 f"Ollama returned HTTP {exc.response.status_code}: {exc.response.text}",
                 provider="ollama",
                 status_code=exc.response.status_code,
+                model=_blamed_model(exc.response.status_code, exc.response.text, target_model),
             ) from exc
         except (httpx.HTTPError, json.JSONDecodeError) as exc:
             logger.error("Failed to parse Ollama response: %s", exc.__class__.__name__)
@@ -203,6 +216,11 @@ class OllamaProvider(LLMProvider):
                         f"Ollama streaming returned HTTP {response.status_code}: {error_body.decode(errors='replace')}",
                         provider="ollama",
                         status_code=response.status_code,
+                        model=_blamed_model(
+                            response.status_code,
+                            error_body.decode(errors="replace"),
+                            target_model,
+                        ),
                     )
 
                 async for line in response.aiter_lines():

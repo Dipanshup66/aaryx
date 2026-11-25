@@ -141,6 +141,10 @@ class ProviderError(Exception):
         status_code: HTTP status returned by the provider, when the failure came from an HTTP
             response. Routing decisions (retry / fallback) use this structured field and never
             parse the human-readable message.
+        model: Model the failed request asked for, when the adapter knows it. Used to tell the
+            user exactly which model to install or fix.
+        operation: What was being done when it failed ("list_models"), when that changes
+            how the error should be explained; None for an ordinary chat request.
     """
 
     def __init__(
@@ -149,10 +153,14 @@ class ProviderError(Exception):
         provider: str = "unknown",
         *,
         status_code: int | None = None,
+        model: str | None = None,
+        operation: str | None = None,
     ) -> None:
         super().__init__(message)
         self.provider = provider
         self.status_code = status_code
+        self.model = model
+        self.operation = operation
 
     @property
     def safe_message(self) -> str:
@@ -203,6 +211,129 @@ def describe_error(exc: BaseException) -> str:
             parts.append(f"status={exc.status_code}")
         return " ".join(parts)
     return exc.__class__.__name__
+
+
+# ---- Actionable error payloads (what the API returns to clients) -------------------------
+
+_ERROR_TITLES = {
+    "provider_unreachable": "Provider connection failed",
+    "provider_timeout": "Provider timeout",
+    "model_not_found": "Model not available",
+    "endpoint_not_found": "Provider endpoint not found",
+    "authentication_failed": "Provider authentication failed",
+    "rate_limited": "Provider rate limit",
+    "provider_response_error": "Provider response error",
+    "provider_error": "Provider error",
+}
+
+# Settings prefix of each provider ("OLLAMA" -> OLLAMA_BASE_URL, OLLAMA_MODEL, ...).
+_ENV_PREFIX = {"ollama": "OLLAMA", "openai": "OPENAI", "anthropic": "ANTHROPIC", "gemini": "GEMINI"}
+
+# A model name is echoed inside a shell command hint, so only plain model-id characters pass.
+_SAFE_MODEL_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,127}")
+
+
+def error_code(exc: ProviderError) -> str:
+    """Stable machine-readable code for a provider failure (the UI switches on this)."""
+    if isinstance(exc, ProviderConnectionError):
+        return "provider_unreachable"
+    if isinstance(exc, ProviderTimeoutError):
+        return "provider_timeout"
+    if isinstance(exc, ProviderResponseError):
+        if exc.status_code == 404:
+            # A 404 on a chat request means an unknown model. But a 404 while listing models,
+            # or from an Ollama server that did not name a model, means the address is wrong
+            # (some other server answered): advising "install the model" would be misleading.
+            if exc.operation == "list_models" or (exc.provider == "ollama" and exc.model is None):
+                return "endpoint_not_found"
+            return "model_not_found"
+        if exc.status_code in (401, 403):
+            return "authentication_failed"
+        if exc.status_code == 429:
+            return "rate_limited"
+        return "provider_response_error"
+    return "provider_error"
+
+
+def error_hint(code: str, provider: str, model: str | None = None) -> str | None:
+    """One actionable sentence telling the user how to fix the problem, or None.
+
+    ``model`` must already be validated (see ``_safe_model_name``).
+    """
+    provider = provider.strip().lower()
+    env = _ENV_PREFIX.get(provider)
+    local = provider == "ollama"
+
+    if code == "provider_unreachable":
+        if local:
+            return (
+                "Start Ollama (run `ollama serve` or open the Ollama app) and check "
+                "OLLAMA_BASE_URL in backend/.env."
+            )
+        where = f"{env}_BASE_URL" if env else "the provider's base URL setting"
+        return f"Check your internet connection and {where}."
+    if code == "provider_timeout":
+        if local:
+            return (
+                "The model took too long. Try again, use a smaller model, or raise OLLAMA_TIMEOUT."
+            )
+        return f"Try again. If it keeps happening, raise {env}_TIMEOUT." if env else "Try again."
+    if code == "model_not_found":
+        if local:
+            name = model or "<model>"
+            return (
+                f"Run `ollama pull {name}` to install it (see installed models with "
+                "`ollama list`), or set OLLAMA_MODEL to a model you have."
+            )
+        setting = f"{env}_MODEL" if env else "the model setting"
+        return f"Check the model name: {setting}, or the model sent with the request."
+    if code == "endpoint_not_found":
+        if local:
+            return (
+                "The server at OLLAMA_BASE_URL answered 404: it is probably not Ollama, or the "
+                "address is wrong. Check OLLAMA_BASE_URL."
+            )
+        where = f"{env}_BASE_URL" if env else "the provider's base URL setting"
+        return f"The server answered 404. Check {where}."
+    if code == "authentication_failed":
+        if local:
+            return (
+                "Ollama refused the request. Check any proxy or authentication in front of "
+                "OLLAMA_BASE_URL."
+            )
+        return f"Check {env}_API_KEY in backend/.env." if env else "Check the provider API key."
+    if code == "rate_limited":
+        return (
+            "The provider is limiting requests or your quota is used up. Wait and retry, "
+            "or check your plan and billing."
+        )
+    return None
+
+
+def _safe_model_name(model: str | None) -> str | None:
+    return model if model and _SAFE_MODEL_NAME.fullmatch(model) else None
+
+
+def error_payload(exc: ProviderError) -> dict[str, str]:
+    """JSON body for a failed provider call: title, code, detail, provider, model, hint.
+
+    Contains no secrets: ``detail`` is the redacted ``safe_message``, ``model`` is a validated
+    plain model id, and ``hint`` is fixed text built from setting names.
+    """
+    code = error_code(exc)
+    model = _safe_model_name(exc.model)
+    payload = {
+        "error": _ERROR_TITLES[code],
+        "code": code,
+        "detail": exc.safe_message,
+        "provider": exc.provider,
+    }
+    if model:
+        payload["model"] = model
+    hint = error_hint(code, exc.provider, model)
+    if hint:
+        payload["hint"] = hint
+    return payload
 
 
 class LLMProvider(ABC):

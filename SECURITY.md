@@ -1,0 +1,132 @@
+# Security Policy
+
+AARYX is a personal-first AI companion. It keeps conversations and memories in a local SQLite
+database and can talk to cloud model providers with your own API keys, so security reports are
+taken seriously.
+
+This is an early-stage project (version 0.1.0). This policy says how to report a problem and what
+you can reasonably expect. It does not promise response times, fixes, or that the software is free
+of vulnerabilities.
+
+## Supported versions
+
+| Version or branch | Security fixes |
+| --- | --- |
+| Latest `main` (the default branch) | Yes: this is the only supported version |
+| `dev`, older commits and any other branch | No |
+| Version 0.1.0 (`CHANGELOG.md`, 2026-11-13) | Only as part of latest `main`; no release tag |
+
+No git tag or release branch exists yet. When tagged releases begin, this table should be updated
+to say which release lines receive security fixes.
+
+## Reporting a vulnerability
+
+**Do not open a public issue, pull request or discussion for a security problem, and do not post
+the details anywhere public.**
+
+Report it privately through GitHub's private vulnerability reporting:
+
+1. Open the repository's **Security** tab.
+2. Choose **Report a vulnerability** (direct link:
+   <https://github.com/Dipanshup66/aaryx/security/advisories/new>).
+3. Fill in the form. Only you and the repository maintainers can see the report.
+
+This depends on the repository owner having switched on private vulnerability reporting (Settings,
+Code security, Private vulnerability reporting). If the **Report a vulnerability** button is not
+shown, it has not been enabled yet: do not disclose the problem publicly, and wait until the button
+is available.
+
+There is no security email address for this project. Do not send reports to addresses you find
+elsewhere.
+
+## What to include in a report
+
+The more of this you can provide, the faster a report can be understood:
+
+- What is affected: the component (for example the API, the memory database or a model provider
+  adapter) and the version or commit.
+- What an attacker can do: the impact in plain words.
+- Steps to reproduce, or a small proof of concept.
+- The configuration involved: whether `API_TOKEN` is set, the values of `API_HOST`,
+  `API_ALLOWED_HOSTS` and `API_CORS_ORIGINS`, how the server was started (`python -m app` or
+  `uvicorn` directly), and your operating system.
+- Any suggested fix, if you have one.
+
+**Do not include real secrets or personal data.** Do not attach `.env` files, API keys, tokens, or
+copies of the memory database or its contents. Use placeholders or made-up data. If a report cannot
+be shown without real secrets, say so and wait for instructions.
+
+## What is in scope
+
+Examples of problems that are in scope:
+
+- Reaching the local API from a web page or another computer when the documented settings should
+  prevent it (the loopback default, the Host-name check, the API token, the CORS rules described
+  below).
+- Reading, changing or deleting stored conversations or memories without the owner's approval.
+- Leaking API keys or tokens into logs, error messages or API responses.
+- Code execution through crafted input to the API or to a model provider response.
+- Weaknesses in the build, dependency or CI setup that could ship malicious code.
+
+Out of scope:
+
+- Problems that need an attacker who already controls your computer or your `.env` file.
+- Exposing the API to the public internet. `docs/SETUP.md` says never to do this.
+- Starting `uvicorn` by hand with a non-loopback host. That skips the launcher's bind check, as
+  `docs/SETUP.md` warns. A way to bypass the check through `python -m app` is in scope.
+- Vulnerabilities in a third-party service or model provider itself: report those to that vendor.
+- Reports produced only by an automated scanner with no demonstrated impact.
+
+## Responsible disclosure
+
+- Give the maintainers reasonable time to investigate and fix the problem before you publish
+  details. There is no fixed disclosure deadline: the timing is agreed with the reporter for each
+  report.
+- Do not access, change or delete data that is not yours, and do not test against other people's
+  AARYX installations. Test only against your own copy.
+- Do not run denial-of-service or social-engineering attacks.
+- There is no bug bounty or reward program.
+- Reporters are credited according to their own preference: named, or kept anonymous.
+
+## What to expect after reporting
+
+The maintainers will review reports as they are able. No response time is promised.
+
+## Security updates
+
+- How a fix is developed, and when and whether a GitHub Security Advisory or CVE is published for
+  it, is decided by the maintainers for each report.
+- Notable changes are recorded in [`CHANGELOG.md`](CHANGELOG.md).
+- Python dependencies are pinned with SHA-256 hashes in `backend/requirements.txt` and
+  `backend/requirements-dev.txt`. They are generated by
+  `uv pip compile --universal --generate-hashes` (see `scripts/update_lock.py`) and installed with
+  `pip install --require-hashes`, which refuses a download whose hash differs. This protects
+  against tampered or substituted packages. It does not mean the pinned versions are free of known
+  vulnerabilities.
+
+## How the local API protects itself
+
+These are the documented defaults (see `docs/SETUP.md`, "Protecting the API"). They reduce risk;
+they are not a guarantee.
+
+- **Loopback by default.** `API_HOST` defaults to `127.0.0.1`. When started with `python -m app`,
+  the server refuses to listen on any non-loopback address unless `API_TOKEN` is set, and every
+  `--reload` worker repeats that check. Starting `uvicorn` directly skips this check.
+- **API token (optional).** If `API_TOKEN` is set (at least 16 characters), requests must send
+  `Authorization: Bearer <token>` or `X-API-Key: <token>`. `/health`, `/docs`, `/redoc`,
+  `/openapi.json` and `/docs/oauth2-redirect` stay open, and CORS preflight (`OPTIONS`) requests
+  are not checked for a token. The token is not required while listening on loopback.
+- **Host-name check.** Only the host names in `API_ALLOWED_HOSTS` are served (default `localhost`,
+  `127.0.0.1`, `[::1]`), which is meant to stop DNS-rebinding attacks from web pages.
+- **CORS.** Only the origins in `API_CORS_ORIGINS` may call the API from a browser (default
+  `tauri://localhost` and `http://tauri.localhost`). Wildcards are rejected and an empty value
+  turns CORS off.
+
+## Using AARYX safely
+
+Short list for users (details in [`docs/SETUP.md`](docs/SETUP.md)):
+
+- Keep the API on the default `127.0.0.1`. To let another computer reach it, set `API_TOKEN` and
+  add the host name clients use to `API_ALLOWED_HOSTS`.
+- Never commit `.env`, API keys or the database in `backend/data`.
+- Never expose the API to the public internet.

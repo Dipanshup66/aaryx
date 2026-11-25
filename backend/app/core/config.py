@@ -4,6 +4,7 @@ Loads environment variables from backend/.env or system environment,
 validates values, and sets sensible defaults for local development.
 """
 
+import re
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Self
@@ -22,6 +23,15 @@ _ENV_FILES = (
     str(Path.cwd() / ".env"),
 )
 
+_ORIGIN_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*://[A-Za-z0-9.\[\]:_-]+$")
+_HOST_RE = re.compile(r"^(?:\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9._-]+)$")
+
+
+def _split_csv(value: str) -> list[str]:
+    """Split a comma-separated setting into trimmed, non-empty items."""
+    return [item.strip() for item in value.split(",") if item.strip()]
+
+
 # Supported AI provider identifiers
 SUPPORTED_AI_PROVIDERS: set[str] = {"ollama", "openai", "anthropic", "gemini"}
 
@@ -38,6 +48,8 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         extra="ignore",
         case_sensitive=False,
+        # Settings hold API keys and the API token: never echo a rejected value in an error.
+        hide_input_in_errors=True,
     )
 
     # Core Application Settings
@@ -203,8 +215,95 @@ class Settings(BaseSettings):
         default="INFO",
         description="Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL",
     )
-    api_host: str = Field(default="127.0.0.1", description="FastAPI host binding")
-    api_port: int = Field(default=8000, description="FastAPI port binding")
+    api_host: str = Field(
+        default="127.0.0.1",
+        description=(
+            "Address the server binds to when started with `python -m app`. Anything other "
+            "than a loopback address requires API_TOKEN."
+        ),
+    )
+    api_port: int = Field(default=8000, ge=1, le=65535, description="Server port")
+    api_token: SecretStr | None = Field(
+        default=None,
+        description=(
+            "Optional shared secret. When set, every /api request must send it as "
+            "'Authorization: Bearer <token>' (or 'X-API-Key'). Required to bind beyond loopback."
+        ),
+    )
+    api_cors_origins: str = Field(
+        default="tauri://localhost,http://tauri.localhost",
+        description=(
+            "Comma-separated browser origins allowed to call the API (the desktop app). "
+            "Empty disables CORS. Wildcards are not accepted."
+        ),
+    )
+    api_allowed_hosts: str = Field(
+        default="localhost,127.0.0.1,[::1]",
+        description=(
+            "Comma-separated Host header values the API answers to. Requests with any other "
+            "Host are refused, which blocks DNS-rebinding attacks on the local API."
+        ),
+    )
+
+    @field_validator("api_token", mode="before")
+    @classmethod
+    def normalize_api_token(cls, v: Any) -> Any:
+        """Treat an empty token as 'not set' and require a reasonably strong secret otherwise."""
+        if v is None:
+            return None
+        raw = v.get_secret_value() if isinstance(v, SecretStr) else str(v)
+        raw = raw.strip()
+        if not raw:
+            return None
+        if len(raw) < 16:
+            raise ValueError(
+                "API_TOKEN must be at least 16 characters. Generate one with: "
+                'python -c "import secrets; print(secrets.token_urlsafe(32))"'
+            )
+        return raw
+
+    @field_validator("api_host", mode="before")
+    @classmethod
+    def normalize_api_host(cls, v: Any) -> Any:
+        """Strip whitespace around the bind address."""
+        return v.strip() if isinstance(v, str) else v
+
+    @field_validator("api_cors_origins")
+    @classmethod
+    def validate_api_cors_origins(cls, v: str) -> str:
+        """Allow only explicit scheme://host[:port] origins; never a wildcard."""
+        for origin in _split_csv(v):
+            if not _ORIGIN_RE.match(origin):
+                raise ValueError(
+                    f"API_CORS_ORIGINS entry {origin!r} must look like scheme://host[:port] "
+                    "(no wildcard, no path)."
+                )
+        return v
+
+    @field_validator("api_allowed_hosts")
+    @classmethod
+    def validate_api_allowed_hosts(cls, v: str) -> str:
+        """Require explicit host names (optionally with an IPv6 bracket form)."""
+        hosts = _split_csv(v)
+        if not hosts:
+            raise ValueError("API_ALLOWED_HOSTS must list at least one host.")
+        for host in hosts:
+            if not _HOST_RE.match(host):
+                raise ValueError(
+                    f"API_ALLOWED_HOSTS entry {host!r} must be a plain host name or IP address "
+                    "(no wildcard, scheme, port or path)."
+                )
+        return v
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parsed list of allowed browser origins."""
+        return _split_csv(self.api_cors_origins)
+
+    @property
+    def allowed_hosts(self) -> list[str]:
+        """Parsed list of accepted Host header values (lowercase)."""
+        return [h.lower() for h in _split_csv(self.api_allowed_hosts)]
 
     @field_validator("app_env", mode="before")
     @classmethod

@@ -2,17 +2,15 @@
 
 from fastapi import APIRouter
 
-from app.api.deps import ProviderDep
-from app.core.config import get_settings
+from app.api.deps import ProviderDep, SettingsDep
 from app.schemas.health import HealthResponse
 
 router = APIRouter(tags=["health"])
 
 
 @router.get("/health", response_model=HealthResponse)
-async def health(provider: ProviderDep) -> HealthResponse:
+async def health(provider: ProviderDep, settings: SettingsDep) -> HealthResponse:
     """Check application health and provider availability."""
-    settings = get_settings()
     provider_health = await provider.health_check()
     overall_status = "ok" if provider_health.healthy else "degraded"
 

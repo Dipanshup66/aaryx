@@ -5,8 +5,14 @@ from typing import Annotated
 from fastapi import Depends, Request
 
 from app.brain.orchestrator import BrainOrchestrator
+from app.core.config import Settings, get_settings
 from app.memory.service import MemoryService
 from app.providers.base import LLMProvider
+
+
+def get_app_settings(request: Request) -> Settings:
+    """Retrieve the settings this application was created with."""
+    return getattr(request.app.state, "settings", None) or get_settings()
 
 
 def get_provider(request: Request) -> LLMProvider:
@@ -24,6 +30,7 @@ def get_memory_service(request: Request) -> MemoryService | None:
     return getattr(request.app.state, "memory_service", None)
 
 
+SettingsDep = Annotated[Settings, Depends(get_app_settings)]
 ProviderDep = Annotated[LLMProvider, Depends(get_provider)]
 OrchestratorDep = Annotated[BrainOrchestrator, Depends(get_orchestrator)]
 MemoryDep = Annotated[MemoryService | None, Depends(get_memory_service)]

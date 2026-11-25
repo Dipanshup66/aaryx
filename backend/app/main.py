@@ -4,16 +4,19 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app import __version__
 from app.api.routes_chat import router as chat_router
 from app.api.routes_conversations import router as conversations_router
 from app.api.routes_health import router as health_router
 from app.api.routes_memories import router as memories_router
 from app.api.routes_models import router as models_router
 from app.brain.orchestrator import BrainOrchestrator
-from app.core.config import get_settings
+from app.core.config import Settings, get_settings
 from app.core.logging import get_logger, setup_logging
+from app.core.security import ApiTokenMiddleware, HostGuardMiddleware, check_launch_bind
 from app.memory.database import create_database_engine, get_session_factory, init_db
 from app.memory.exceptions import (
     ConversationNotFoundError,
@@ -28,6 +31,7 @@ from app.providers.base import (
     ProviderResponseError,
     ProviderTimeoutError,
     describe_error,
+    error_payload,
 )
 from app.providers.router import ProviderRouter
 
@@ -36,8 +40,14 @@ logger = get_logger("main")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Manage application startup, provider initialization, memory setup, and graceful shutdown."""
-    settings = get_settings()
+    """Manage application startup, provider initialization, memory setup, and graceful shutdown.
+
+    Uses the settings the app was created with (``create_app``); only an app built some other
+    way falls back to the cached environment settings.
+    """
+    settings = getattr(app.state, "settings", None) or get_settings()
+    # Before anything starts: a reload worker must not serve an external socket without a token.
+    check_launch_bind(settings.api_token is not None)
     setup_logging(settings.log_level)
     logger.info(
         "Initializing %s in %s mode (provider=%s, fallback_enabled=%s, memory_enabled=%s)",
@@ -74,6 +84,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         memory_service = MemoryService(
             session_factory=session_factory,
             max_history_messages=settings.memory_max_history_messages,
+            settings=settings,
         )
         logger.info("Persistent conversation memory successfully initialized")
 
@@ -90,15 +101,31 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     logger.info("Shutdown complete")
 
 
-def create_app() -> FastAPI:
+def create_app(settings: Settings | None = None) -> FastAPI:
     """Create and configure the central FastAPI application."""
-    settings = get_settings()
+    settings = settings or get_settings()
     app = FastAPI(
         title=f"{settings.app_name} API",
-        version="0.1.0",
+        version=__version__,
         description="AARYX Personal AI Companion API",
         lifespan=lifespan,
     )
+    app.state.settings = settings
+
+    # Middleware order: the last one added is the outermost. A request passes through the
+    # Host check first, then CORS (which answers browser preflights), then the API token.
+    if settings.api_token is not None:
+        app.add_middleware(ApiTokenMiddleware, token=settings.api_token.get_secret_value())
+    if settings.cors_origins:
+        app.add_middleware(
+            CORSMiddleware,
+            allow_origins=settings.cors_origins,
+            allow_credentials=False,
+            allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
+            allow_headers=["Authorization", "Content-Type", "X-API-Key"],
+            max_age=600,
+        )
+    app.add_middleware(HostGuardMiddleware, allowed_hosts=settings.allowed_hosts)
 
     # Register Provider Exception Handlers
     @app.exception_handler(ProviderConnectionError)
@@ -108,11 +135,7 @@ def create_app() -> FastAPI:
         logger.error("Provider connection error: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={
-                "error": "Provider connection failed",
-                "detail": exc.safe_message,
-                "provider": exc.provider,
-            },
+            content=error_payload(exc),
         )
 
     @app.exception_handler(ProviderTimeoutError)
@@ -122,11 +145,7 @@ def create_app() -> FastAPI:
         logger.error("Provider timeout: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            content={
-                "error": "Provider timeout",
-                "detail": exc.safe_message,
-                "provider": exc.provider,
-            },
+            content=error_payload(exc),
         )
 
     @app.exception_handler(ProviderResponseError)
@@ -136,11 +155,7 @@ def create_app() -> FastAPI:
         logger.error("Provider response error: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            content={
-                "error": "Provider response error",
-                "detail": exc.safe_message,
-                "provider": exc.provider,
-            },
+            content=error_payload(exc),
         )
 
     @app.exception_handler(ProviderError)
@@ -148,11 +163,7 @@ def create_app() -> FastAPI:
         logger.error("Provider generic error: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "error": "Provider error",
-                "detail": exc.safe_message,
-                "provider": exc.provider,
-            },
+            content=error_payload(exc),
         )
 
     # Register Memory Exception Handlers

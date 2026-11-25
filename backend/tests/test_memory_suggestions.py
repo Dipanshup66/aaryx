@@ -266,7 +266,9 @@ async def test_approve_and_reject_endpoints(factory) -> None:
     app.dependency_overrides[get_memory_service] = lambda: svc
     app.state.memory_service = svc
     try:
-        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://t") as client:
+        async with AsyncClient(
+            transport=ASGITransport(app=app), base_url="http://localhost"
+        ) as client:
             pending = await client.get("/api/memories", params={"status": "candidate"})
             assert pending.status_code == 200 and pending.json()["total"] == 2
 

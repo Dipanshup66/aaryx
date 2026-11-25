@@ -172,7 +172,7 @@ async def world(tmp_path: Path) -> AsyncIterator[World]:
     app.state.memory_service = svc
     transport = ASGITransport(app=app, raise_app_exceptions=False)
     try:
-        async with AsyncClient(transport=transport, base_url="http://t") as c:
+        async with AsyncClient(transport=transport, base_url="http://localhost") as c:
             yield World(c, model, svc, ex)
     finally:
         app.dependency_overrides.clear()
