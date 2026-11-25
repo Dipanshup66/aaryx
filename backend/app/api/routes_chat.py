@@ -1,5 +1,6 @@
 """Conversational chat routes integrating AI Brain orchestration and persistent memory."""
 
+import json
 from collections.abc import AsyncIterator
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException, status
@@ -12,6 +13,7 @@ from app.brain.schemas import BrainChatRequest, BrainChatResponse
 from app.core.logging import get_logger
 from app.memory.exceptions import ConversationNotFoundError
 from app.memory.service import MemoryService
+from app.providers.base import ProviderError, error_payload
 
 logger = get_logger("api.chat")
 
@@ -244,6 +246,13 @@ async def chat_stream(
 
             completed = True
             yield "data: [DONE]\n\n"
+        except ProviderError as exc:
+            # The status line is already sent, so tell the client why the stream stops: the same
+            # fields (code, detail, hint, model) as an error response, in an SSE event with an
+            # "error" key. A failed stream never ends with [DONE].
+            failure = exc.__class__.__name__
+            yield f"data: {json.dumps({'error': error_payload(exc)})}\n\n"
+            raise
         except Exception as exc:
             failure = exc.__class__.__name__
             raise

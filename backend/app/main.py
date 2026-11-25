@@ -31,6 +31,7 @@ from app.providers.base import (
     ProviderResponseError,
     ProviderTimeoutError,
     describe_error,
+    error_payload,
 )
 from app.providers.router import ProviderRouter
 
@@ -134,11 +135,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         logger.error("Provider connection error: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            content={
-                "error": "Provider connection failed",
-                "detail": exc.safe_message,
-                "provider": exc.provider,
-            },
+            content=error_payload(exc),
         )
 
     @app.exception_handler(ProviderTimeoutError)
@@ -148,11 +145,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         logger.error("Provider timeout: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_504_GATEWAY_TIMEOUT,
-            content={
-                "error": "Provider timeout",
-                "detail": exc.safe_message,
-                "provider": exc.provider,
-            },
+            content=error_payload(exc),
         )
 
     @app.exception_handler(ProviderResponseError)
@@ -162,11 +155,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         logger.error("Provider response error: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            content={
-                "error": "Provider response error",
-                "detail": exc.safe_message,
-                "provider": exc.provider,
-            },
+            content=error_payload(exc),
         )
 
     @app.exception_handler(ProviderError)
@@ -174,11 +163,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         logger.error("Provider generic error: %s", describe_error(exc))
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={
-                "error": "Provider error",
-                "detail": exc.safe_message,
-                "provider": exc.provider,
-            },
+            content=error_payload(exc),
         )
 
     # Register Memory Exception Handlers

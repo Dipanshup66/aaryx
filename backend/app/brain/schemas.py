@@ -48,6 +48,12 @@ class BrainChatResponse(BaseModel):
     usage: TokenUsage | None = Field(default=None, description="Token usage metrics if available")
     thinking: str | None = Field(default=None, description="Thinking trace if reported")
     provider: str | None = Field(default=None, description="Provider that generated the response")
+    latency_ms: int | None = Field(
+        default=None,
+        ge=0,
+        description="Milliseconds from sending the request to the model until the reply was ready "
+        "(includes retries and fallback)",
+    )
     conversation_id: str | None = Field(default=None, description="Active conversation identifier")
 
 
@@ -60,4 +66,9 @@ class BrainStreamChunk(BaseModel):
     usage: TokenUsage | None = Field(default=None, description="Token usage metrics on final chunk")
     thinking: str | None = Field(default=None, description="Thinking chunk if reported")
     provider: str | None = Field(default=None, description="Provider generating this stream chunk")
+    latency_ms: int | None = Field(
+        default=None,
+        ge=0,
+        description="Total milliseconds the model took; set only on the last chunk of a stream",
+    )
     conversation_id: str | None = Field(default=None, description="Active conversation identifier")
