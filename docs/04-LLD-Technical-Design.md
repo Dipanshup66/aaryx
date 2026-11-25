@@ -121,13 +121,14 @@ Response:
   "usage": {"prompt_tokens": 12, "completion_tokens": 9, "total_tokens": 21},
   "thinking": null,
   "provider": "ollama",
+  "latency_ms": 1840,
   "conversation_id": "uuid"
 }
 ```
 
-`thinking` is always `null`: reasoning text never reaches the client. `latency_ms` is not reported yet **(planned, P1-12)**.
+`thinking` is always `null`: reasoning text never reaches the client. `latency_ms` is the whole number of milliseconds from sending the request to the model until the reply was ready; it includes retries and fallback, and is also written to the log (never together with message text). It is absent from error responses.
 
-`POST /api/chat/stream` takes the same body and answers with `text/event-stream`. Each event is `data: {chunk}\n\n` where a chunk has `delta`, `model`, `finish_reason`, `usage`, `thinking` (only the placeholder `"AARYX is thinking..."`), `provider`, `conversation_id`. A normal stream ends with `data: [DONE]`. If generation or saving fails, the stream ends without `[DONE]`, and no partial assistant message is stored.
+`POST /api/chat/stream` takes the same body and answers with `text/event-stream`. Each event is `data: {chunk}\n\n` where a chunk has `delta`, `model`, `finish_reason`, `usage`, `thinking` (only the placeholder `"AARYX is thinking..."`), `provider`, `latency_ms`, `conversation_id`. `latency_ms` is set only on the last chunk (the one with `finish_reason`) and is the total time, not the time to the first token. A normal stream ends with `data: [DONE]`. If generation or saving fails, the stream ends without `[DONE]`, and no partial assistant message is stored.
 
 Turn rules: the user message is stored before inference and kept if the turn fails; an assistant message is stored only after a complete, non-empty reply; unanswered user messages from failed turns are merged into the next prompt so roles keep alternating.
 
@@ -181,7 +182,6 @@ Suggestion actions return `400` if the memory is not a pending suggestion and `4
 | Addition | Task |
 |---|---|
 | `mode` / `provider` / `model` per chat request; `GET /api/providers` | P1-9, P1-10 |
-| `latency_ms` on replies | P1-12 |
 | `GET /api/usage`, spend caps | P1-14 |
 | `GET/PUT /api/settings` | P1-16 |
 | Private (unsaved) chat; conversation search and export | P1-15, P1-17 |
@@ -227,7 +227,7 @@ class LLMProvider(ABC):
 ```
 
 - `ChatRequest`: `messages` (`role` + `content`), optional `model`, `temperature` (0–2), `max_tokens`.
-- `ChatResponse`: `content`, `model`, `finish_reason`, `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`), `thinking`, `provider`. (`latency_ms` is planned, P1-12.)
+- `ChatResponse`: `content`, `model`, `finish_reason`, `usage` (`prompt_tokens`, `completion_tokens`, `total_tokens`), `thinking`, `provider`. Latency is measured one layer up, by the brain orchestrator around the provider call, and exposed as `latency_ms` on the chat response and the final stream chunk.
 - `ChatStreamChunk`: `delta`, `model`, `finish_reason`, `usage`, `thinking`, `provider`.
 - `ProviderHealth`: `healthy`, `provider`, `details`, `error`.
 - Provider-specific request and response formats stay inside each adapter.
@@ -264,14 +264,34 @@ Rules:
 | Missing or wrong API token | 401 | `{"error": "Unauthorized", "detail": "A valid API token is required."}` plus `WWW-Authenticate: Bearer` |
 | Disallowed Host header | 400 | `{"error": "Invalid host", "detail": "..."}` |
 | Memory disabled | 503 | `{"detail": "Persistent conversation memory is disabled."}` |
-| Provider unreachable | 503 | `{"error": "Provider connection failed", "detail": "...", "provider": "ollama"}` |
-| Provider timeout | 504 | `{"error": "Provider timeout", "detail": "...", "provider": "..."}` |
-| Provider returned an error | 502 | `{"error": "Provider response error", "detail": "...", "provider": "..."}` |
-| Other provider error | 500 | `{"error": "Provider error", "detail": "...", "provider": "..."}` |
+| Provider unreachable | 503 | provider error body, `code` `provider_unreachable` |
+| Provider timeout | 504 | provider error body, `code` `provider_timeout` |
+| Model not available (provider answered 404) | 502 | provider error body, `code` `model_not_found`, `model` |
+| Wrong address (provider answered 404 while listing models, or Ollama answered 404 without naming a model) | 502 | provider error body, `code` `endpoint_not_found` |
+| Provider rejected the key / rate limit | 502 | provider error body, `code` `authentication_failed` / `rate_limited` |
+| Provider returned another error | 502 | provider error body, `code` `provider_response_error` |
+| Other provider error | 500 | provider error body, `code` `provider_error` |
+
+**Provider error body** (every row above; the same object is sent as `{"error": {...}}` in a stream):
+
+```json
+{
+  "error": "Model not available",
+  "code": "model_not_found",
+  "detail": "Ollama returned HTTP 404: {\"error\":\"model 'qwen3.5:4b' not found ...\"}",
+  "provider": "ollama",
+  "model": "qwen3.5:4b",
+  "hint": "Run `ollama pull qwen3.5:4b` to install it (see installed models with `ollama list`), or set OLLAMA_MODEL to a model you have."
+}
+```
+
+- `error` (title), `detail` and `provider` are unchanged from before; `code` is the stable value a UI should switch on; `model` appears only when the adapter knows it and it is a plain model id; `hint` is one sentence telling the user how to fix it, built from fixed text and setting names, and is absent when there is nothing useful to say.
+- A 404 is read carefully: on a chat request it means an unknown model (`model_not_found`), but a 404 while listing models, or from an Ollama server whose answer does not mention a model (some other server, or a wrong `OLLAMA_BASE_URL`), is `endpoint_not_found` and the hint points at the base URL instead of telling the user to install a model.
+- Hints: Ollama not running says to run `ollama serve` (or open the app) and check `OLLAMA_BASE_URL`; a missing Ollama model names the exact `ollama pull <model>` command; cloud providers point at `<PROVIDER>_MODEL`, `<PROVIDER>_API_KEY`, `<PROVIDER>_BASE_URL` or `<PROVIDER>_TIMEOUT`. A model name that is not a plain id (spaces, quotes, `;`, `$`, ...) is dropped and the hint shows `<model>`, so a request can never inject a command into a hint.
+- Streams: the status line is already sent, so when a provider fails the stream carries a final event `data: {"error": {...}}` and then ends without `[DONE]`. Unexpected non-provider errors send no event and never reveal internals.
 
 - Never expose stack traces or secret values to clients or logs.
 - Tool denied (planned): return a denied status and do not attempt execution.
-- Setup hints for "Ollama not running" and "model missing" are planned (P1-11).
 
 ## 7. Local API security
 

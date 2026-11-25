@@ -181,8 +181,8 @@ Starting fresh: stop the server and delete the `data/` files; an empty database 
 | The `pip install` commands fail | run them inside `backend/`, with Python 3.11+, and update pip first: `python -m pip install -U pip` |
 | pip says `THESE PACKAGES DO NOT MATCH THE HASHES` | the download differs from the pinned one: retry once; if it repeats, do not bypass the check, report it |
 | pip finds no matching file for a package on your system (a very new Python or an unusual platform) | as a fallback only, `pip install -e ".[dev]"` installs the newest versions allowed by `pyproject.toml`; then tell us which package failed |
-| `/health` says `degraded`, chat returns `503 Provider connection failed` | Ollama is not running: start it with `ollama serve` (or open the app), and check `OLLAMA_BASE_URL` |
-| Chat fails with a provider error right after you changed the model | the model is probably not pulled: compare `OLLAMA_MODEL` with `ollama list` (exact name), and run `ollama pull <model>` if it is missing. A clearer message for this case is planned (task P1-11) |
+| `/health` says `degraded`, chat returns `503 Provider connection failed` (`code` `provider_unreachable`) | Ollama is not running: start it with `ollama serve` (or open the app), and check `OLLAMA_BASE_URL`. Every error response carries a `hint` saying this |
+| Chat returns `502 Model not available` (`code` `model_not_found`) | the model is not installed: the `hint` in the response names the exact command, `ollama pull <model>`. Compare `OLLAMA_MODEL` with `ollama list`, or set `OLLAMA_MODEL` to a model you have |
 | Chat times out | local models can be slow on CPU: raise `OLLAMA_TIMEOUT` or use a smaller model |
 | Server will not start with a message like "OpenAI configured as fallback provider, but OPENAI_API_KEY is not set" | you enabled a cloud fallback without its `*_API_KEY`: add the key, or set `AI_FALLBACK_ENABLED=false` |
 | `Address already in use` | another program uses the port: set `API_PORT=8001` in `.env` |

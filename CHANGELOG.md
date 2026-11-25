@@ -14,6 +14,8 @@ All notable changes to AARYX are recorded here, newest first. The format follows
 ## [Unreleased]
 
 ### Added
+- Provider errors are actionable: every provider error response now also has a stable `code` (`provider_unreachable`, `provider_timeout`, `model_not_found`, `endpoint_not_found`, `authentication_failed`, `rate_limited`, ...), the exact `model` when known, and a one-sentence `hint` (for example "Run `ollama pull qwen3.5:4b` ..." or "Start Ollama (run `ollama serve` ...)"). Streams send the same object as a final `{"error": ...}` event. Existing fields are unchanged.
+- `latency_ms` on chat replies and on the last chunk of a stream (milliseconds the model took, including retries and fallback); it is also logged without any message text.
 - Long-term memory in the chat flow: relevant approved memories are added to each prompt, and AARYX proposes new memories after each completed reply.
 - Memory suggestions: things AARYX infers are only suggestions until you approve them (`POST /api/memories/{id}/approve`) or reject them (`.../reject`). Rejected suggestions are never proposed again.
 - "Remember this" requests are recognised in English and Hinglish ("yaad rakho ki ...", "dhyan rakho", "mat bhoolna", "note kar lo").
